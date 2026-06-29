@@ -28,7 +28,16 @@ description: Decide whether to hand off to a fresh session when context is near 
 | tier1 + งานใกล้จบใน 1-2 step สั้น | ทำต่อให้จบ step นั้น → **handoff ทันที** (อย่าเริ่มงานใหญ่ใหม่) |
 
 ### 3. ถ้าตัดสินว่า handoff
-1. invoke skill `handoff` → สร้าง handoff doc (context / gotchas / งานถัดไป / **ไฟล์ที่ค้าง**)
+1. เขียน **handoff doc** เอง (standalone — ไม่พึ่ง skill อื่น) ที่ `HANDOFF.md` ของ repo ตามโครงนี้:
+   ```
+   # Handoff — <topic> (<date>)
+   ## ค้างทันที          atomic ที่ห้ามทิ้ง — uncommitted ไฟล์ไหน / migration ค้าง / background task + วิธีต่อ
+   ## Worktree/branch/env  path, branch, env (token/account id), คำสั่ง validate
+   ## ทำเสร็จใน session นี้  bullets
+   ## งานถัดไป            bullets เรียงลำดับ + ของที่ BLOCKED
+   ## กฎเหล็ก/gotchas     commit policy, จุดพลาดที่ต้องรู้
+   ```
+   (ถ้ามี skill `handoff` แยกติดตั้งอยู่ จะ invoke ใช้แทนก็ได้ — optional)
 2. อัปเดต state file ของ repo (เช่น `task.md`) ให้สดล่าสุด
 3. เขียน path ของ handoff ลง `~/.claude/.handoff-guard/last-handoff.txt` (ให้ SessionStart hook ของ session ใหม่หาเจอ)
 4. **chip session ใหม่ให้ผู้ใช้** (สะดวก ไม่ต้องเปิดเอง) — เรียก `mcp__ccd_session__spawn_task`:

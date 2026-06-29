@@ -2,9 +2,9 @@
 
 Claude Code skill + hooks ที่ทำให้ **handoff ตอน context ใกล้เต็มแม่นยำ** — แทนที่จะพึ่งกฎนุ่มๆ ใน CLAUDE.md/memory (ที่ model มักลืม/ปล่อยจนเต็ม 200k) ใช้ **Stop hook อ่าน token จริงทุกเทิร์น** เป็นตัว trigger + **AI ประเมิน**ว่าควรขึ้น session ใหม่ไหม + **chip/handoff doc** ให้ต่อสะดวก
 
-**Dependency:** ใช้ skill `handoff` (superpowers/Matt) สร้าง handoff doc — guard นี้ **บังคับใช้** (คุณภาพดีกว่า: เซฟ temp ไม่รก repo, suggested-skills, เลี่ยง duplicate, redact secret) · **ถ้ายังไม่มี → ติดตั้งให้อัตโนมัติ**จากสำเนา vendored (`vendor/handoff/` ผ่าน `scripts/ensure-handoff.mjs`) แล้ว restart · นอกนั้นพึ่งแค่ `node` บน PATH
+**Dependency:** ใช้ skill `handoff` ของ Matt Pocock ([mattpocock/skills](https://github.com/mattpocock/skills) → `skills/productivity/handoff`) สร้าง handoff doc — guard นี้ **บังคับใช้** (คุณภาพดีกว่า: เซฟ temp ไม่รก repo, suggested-skills, เลี่ยง duplicate, redact secret) · **ถ้ายังไม่มี → ติดตั้งให้อัตโนมัติ** ผ่าน `scripts/ensure-handoff.mjs` (ดึงจาก upstream → fallback สำเนา `vendor/handoff/` ถ้า offline) แล้ว restart · นอกนั้นพึ่งแค่ `node` บน PATH
 
-> `vendor/handoff/` เป็นสำเนาของ skill `handoff` (superpowers/Matt) bundle ไว้เพื่อ auto-install — เครดิตเจ้าของเดิม
+> `vendor/handoff/` = สำเนา offline ของ skill `handoff` (© Matt Pocock, mattpocock/skills) bundle ไว้เป็น fallback ตอน ensure
 
 ## ทำไมถึงแม่นกว่ากฎนุ่มๆ
 

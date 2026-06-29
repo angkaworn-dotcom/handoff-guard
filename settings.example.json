@@ -1,0 +1,28 @@
+{
+  "_comment": "merge บล็อก hooks นี้เข้า ~/.claude/settings.json — แก้ path ของ node command ตามเครื่อง (Windows ใช้ absolute เช่น C:/Users/<you>/...; macOS/Linux ใช้ $HOME/...)",
+  "hooks": {
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$HOME/.claude/hooks/context-guard.mjs\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"$HOME/.claude/hooks/session-resume.mjs\"",
+            "timeout": 15
+          }
+        ]
+      }
+    ]
+  }
+}

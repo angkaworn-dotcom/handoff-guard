@@ -2,7 +2,7 @@
 
 Claude Code skill + hooks ที่ทำให้ **handoff ตอน context ใกล้เต็มแม่นยำ** — แทนที่จะพึ่งกฎนุ่มๆ ใน CLAUDE.md/memory (ที่ model มักลืม/ปล่อยจนเต็ม 200k) ใช้ **Stop hook อ่าน token จริงทุกเทิร์น** เป็นตัว trigger + **AI ประเมิน**ว่าควรขึ้น session ใหม่ไหม + **chip/handoff doc** ให้ต่อสะดวก
 
-**Standalone** — ไม่พึ่ง skill/plugin ภายนอก (เขียน handoff doc เองตามโครงในตัว skill) · ต้องการแค่ `node` บน PATH · ถ้ามี skill `handoff` แยกติดตั้งอยู่ จะใช้แทนได้ (optional)
+**Standalone** (พึ่งแค่ `node` บน PATH) — แต่ **prefer skill `handoff` ของ superpowers/Matt ถ้ามี** (คุณภาพดีกว่า: เซฟ temp ไม่รก repo, มี suggested-skills, เลี่ยง duplicate, redact secret) แล้ว **fallback เขียน handoff doc เอง**ตามโครงในตัว skill ถ้าไม่มี
 
 ## ทำไมถึงแม่นกว่ากฎนุ่มๆ
 

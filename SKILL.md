@@ -28,18 +28,9 @@ description: Decide whether to hand off to a fresh session when context is near 
 | tier1 + งานใกล้จบใน 1-2 step สั้น | ทำต่อให้จบ step นั้น → **handoff ทันที** (อย่าเริ่มงานใหญ่ใหม่) |
 
 ### 3. ถ้าตัดสินว่า handoff
-1. สร้าง **handoff doc** — เลือกทางที่ดีกว่าที่มี:
-   - **ถ้ามี skill `handoff` (superpowers/Matt) → ใช้ตัวนั้นก่อน** (ดีกว่า: เซฟ OS temp ไม่รก repo, มี "suggested skills", เลี่ยง duplicate กับ plan/commit/diff — อ้าง path แทน, redact secret) · ส่ง focus ของ session ถัดไปเป็น argument + บังคับให้ครอบ **atomic/uncommitted, worktree/branch/env, BLOCKED**
-   - **ถ้าไม่มี (standalone fallback) → เขียน `HANDOFF.md` เองตามโครง:**
-     ```
-     # Handoff — <topic> (<date>)
-     ## ค้างทันที          atomic ห้ามทิ้ง — uncommitted ไฟล์ไหน / migration ค้าง / background task + วิธีต่อ
-     ## Worktree/branch/env  path, branch, env (token/account id), คำสั่ง validate
-     ## ทำเสร็จใน session นี้  bullets (อ้าง plan/commit/diff โดย path — อย่า duplicate)
-     ## งานถัดไป + BLOCKED   bullets เรียงลำดับ
-     ## กฎเหล็ก/gotchas + suggested skills
-     ```
-     redact secret (API key / password / PII)
+1. สร้าง **handoff doc** ด้วย skill `handoff` (superpowers/Matt) — **บังคับใช้ (dependency ของ guard นี้)**
+   invoke skill `handoff` · ส่ง focus ของ session ถัดไปเป็น argument + บังคับให้ครอบ **atomic/uncommitted, worktree/branch/env, BLOCKED**
+   > **fail-safe เท่านั้น** (ถ้า `handoff` ไม่ได้ติดตั้งจริง — อย่าปล่อยงานหาย): เขียน `HANDOFF.md` สั้นๆ (ค้างทันที / worktree-branch-env / งานถัดไป+BLOCKED / gotchas · redact secret) แล้ว **เตือนผู้ใช้ให้ติดตั้ง skill `handoff`**
 2. อัปเดต state file ของ repo (เช่น `task.md`) ให้สดล่าสุด
 3. เขียน path ของ handoff ลง `~/.claude/.handoff-guard/last-handoff.txt` (ให้ SessionStart hook ของ session ใหม่หาเจอ)
 4. **chip session ใหม่ให้ผู้ใช้** (สะดวก ไม่ต้องเปิดเอง) — เรียก `mcp__ccd_session__spawn_task`:

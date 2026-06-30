@@ -6,7 +6,7 @@
 
 | ไฟล์ | บทบาท |
 |------|-------|
-| `~/.claude/hooks/context-guard.mjs` | **Stop hook** — L1 วัด token จริงทุกเทิร์น + L2 EWMA growth → ETA · ทริก (predict / ≥170k / ≥188k) → block + ฉีดให้ invoke skill `handoff-guard` |
+| `~/.claude/hooks/context-guard.mjs` | **Stop hook** — L1 วัด token จริงทุกเทิร์น + L2 EWMA growth → ETA · ทริก (predict / ≥218k / ≥240k) → block + ฉีดให้ invoke skill `handoff-guard` |
 | `~/.claude/hooks/session-resume.mjs` | **SessionStart hook** — เจอไฟล์ handoff ในโปรเจกต์/last-handoff → ฉีดตัวชี้ให้ session ใหม่อ่าน |
 | `~/.claude/skills/handoff-guard/SKILL.md` | **AI eval (L3+L4)** — ตัดสินว่าควรขึ้น session ใหม่ไหม + ทำ handoff + verify ตอน resume |
 | `~/.claude/.handoff-guard/<session>.state.json` | **L2 state** — `{lastTokens, ema, turns}` ต่อ session (hook เขียน/อ่านเอง คำนวณ EWMA ข้ามเทิร์น) |
@@ -40,8 +40,8 @@ Stop hook รับ `transcript_path` ทาง stdin → อ่าน JSONL →
 
 ## วิธี predict ทำงาน (L2)
 
-ทุกเทิร์น hook คำนวณ `delta = tokens - lastTokens` → อัปเดต **EWMA**: `ema = α·delta + (1-α)·ema` (α=0.4 ถ่วงล่าสุด, ทน spike อ่านไฟล์ใหญ่) → `etaTurns = ceil((188k - tokens) / max(ema, 500))`
-ทริก **predict** เมื่อ `etaTurns ≤ K(3)` & มี ≥2 observation & token ยังไม่ถึง 170k → เตือนล่วงหน้าก่อนวิกฤต (`delta` ติดลบ = compaction → ไม่นับ, reset baseline)
+ทุกเทิร์น hook คำนวณ `delta = tokens - lastTokens` → อัปเดต **EWMA**: `ema = α·delta + (1-α)·ema` (α=0.4 ถ่วงล่าสุด, ทน spike อ่านไฟล์ใหญ่) → `etaTurns = ceil((240k - tokens) / max(ema, 500))`
+ทริก **predict** เมื่อ `etaTurns ≤ K(3)` & มี ≥2 observation & token ยังไม่ถึง 218k → เตือนล่วงหน้าก่อนวิกฤต (`delta` ติดลบ = compaction → ไม่นับ, reset baseline)
 
 ## Verify
 
@@ -49,20 +49,21 @@ Stop hook รับ `transcript_path` ทาง stdin → อ่าน JSONL →
 ```
 node "C:/Users/Dell/.claude/skills/handoff-guard/scripts/selftest.mjs"
 ```
-ครอบ: absolute (169k ไม่ block · 171k tier1 · 188k tier2 · fire ซ้ำเงียบ) + **predict** (โตสม่ำเสมอ → ยิงตอน ETA≤K ก่อน 170k · cold-start turns<2 ไม่ยิง · spike เดียวไม่ทำ ETA กระโดด · compaction delta ลบไม่พัง)
+ครอบ: absolute (217k ไม่ block · 219k tier1 · 241k tier2 · fire ซ้ำเงียบ) + **predict** (โตสม่ำเสมอ → ยิงตอน ETA≤K ก่อน 218k · cold-start turns<2 ไม่ยิง · spike เดียวไม่ทำ ETA กระโดด · compaction delta ลบไม่พัง)
 
 **2. Live test** (พิสูจน์ว่า `decision:block` ปลุก Claude จริงในเวอร์ชันนี้):
 - ตั้งชั่วคราว `HANDOFF_GUARD_THRESHOLD=1` (env หรือแก้ default) → คุยอะไรก็ได้ 1 ประโยค → Claude ควรถูก "block" แล้วเด้งมา invoke `handoff-guard` ทันที
-- ผ่านแล้วคืนค่า 170000 + ลบ marker เก่า: ลบ `~/.claude/.handoff-guard/*.{p,t1,t2}` + `*.state.json`
+- ผ่านแล้วคืนค่า 218000 + ลบ marker เก่า: ลบ `~/.claude/.handoff-guard/*.{p,t1,t2}` + `*.state.json`
 
 ## Tune
 
 | อยากได้ | ทำ |
 |--------|----|
-| เตือน (absolute) เร็ว/ช้าขึ้น | env `HANDOFF_GUARD_THRESHOLD` (default 170000), `HANDOFF_GUARD_THRESHOLD2` (188000) |
+| เตือน (absolute) เร็ว/ช้าขึ้น | env `HANDOFF_GUARD_THRESHOLD` (default 218000 = 85%×256k), `HANDOFF_GUARD_THRESHOLD2` (240000 = 94%×256k) |
+| เปลี่ยนเพดานบริบท (display) | env `HANDOFF_GUARD_MAX` (default 256000) — เกินนี้เริ่มเสียบริบท · เปลี่ยนเพดานแล้วควรปรับ T1/T2 ตาม (85%/94%) |
 | predict เตือนล่วงหน้ามาก/น้อย | env `HANDOFF_GUARD_PREDICT_TURNS` (K, default 3) — มาก=เตือนเบาๆ เร็ว, น้อย=ดึงใกล้ค่อยเตือน |
 | predict ไวต่อ spike มาก/น้อย | env `HANDOFF_GUARD_EMA_ALPHA` (default 0.4) — สูง=react ไว แต่กระตุกตาม spike, ต่ำ=นิ่งแต่ lag |
-| auto-compact ยิงก่อน 170k (ไม่ทันเตือน) | ลด threshold ลง (เช่น 160000) — สังเกตจาก live ว่า compaction เกิดที่กี่ token |
+| auto-compact ยิงก่อน 218k (ไม่ทันเตือน) | ลด threshold ลง (เช่น 200000) — สังเกตจาก live ว่า compaction เกิดที่กี่ token |
 | รีเซ็ตการเตือนของ session | ลบ marker `~/.claude/.handoff-guard/<session_id>.{p,t1,t2}` + `.state.json` (รีเซ็ต EWMA) |
 
 ## ข้อจำกัด (ตรงไปตรงมา)

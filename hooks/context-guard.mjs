@@ -9,8 +9,9 @@ import { readFileSync, mkdirSync, existsSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-const T1 = Number(process.env.HANDOFF_GUARD_THRESHOLD || 170000);   // tier1: เตือน/ประเมิน (absolute)
-const T2 = Number(process.env.HANDOFF_GUARD_THRESHOLD2 || 188000);  // tier2: ด่วน (absolute) + เป้าของ ETA
+const T1 = Number(process.env.HANDOFF_GUARD_THRESHOLD || 218000);   // tier1: เตือน/ประเมิน (absolute) = 85% ของ 256k
+const T2 = Number(process.env.HANDOFF_GUARD_THRESHOLD2 || 240000);  // tier2: ด่วน (absolute) + เป้าของ ETA = 94% ของ 256k
+const MAX = Number(process.env.HANDOFF_GUARD_MAX || 256000);        // เพดานบริบท (display) — เกินนี้เริ่มเสียบริบท
 const K = Number(process.env.HANDOFF_GUARD_PREDICT_TURNS || 3);     // lead time (เทิร์น) ของ predict trigger
 const ALPHA = Number(process.env.HANDOFF_GUARD_EMA_ALPHA || 0.4);   // น้ำหนัก EWMA ของ delta ล่าสุด
 const FLOOR = 500;  // rate ต่ำสุดที่ยอมใช้หาร (กัน ETA ระเบิดเป็น Infinity)
@@ -93,7 +94,7 @@ function main() {
     writeFileSync(m1, String(tokens));
     emit(
       `Context ~${tokens} tokens (เกิน ${T2} — ด่วน)`,
-      `🔴 ด่วน [tier=tier2 · tokens=${tokens} · rate=${Math.round(rate)}/เทิร์น]: context ~${tokens}/200000 ใกล้เต็มมาก. ก่อนทำงานอื่นต่อ ให้ invoke skill "handoff-guard" เดี๋ยวนี้ — ปิด step ที่ค้างให้ปลอดภัย, สร้าง handoff doc, แล้วบอกผู้ใช้เปิด session ใหม่.`
+      `🔴 ด่วน [tier=tier2 · tokens=${tokens} · rate=${Math.round(rate)}/เทิร์น]: context ~${tokens}/${MAX} ใกล้เต็มมาก. ก่อนทำงานอื่นต่อ ให้ invoke skill "handoff-guard" เดี๋ยวนี้ — ปิด step ที่ค้างให้ปลอดภัย, สร้าง handoff doc, แล้วบอกผู้ใช้เปิด session ใหม่.`
     );
   }
 
@@ -102,7 +103,7 @@ function main() {
     writeFileSync(m1, String(tokens));
     emit(
       `Context ~${tokens} tokens (เกิน ${T1})`,
-      `⚠️ [tier=tier1 · tokens=${tokens} · rate=${Math.round(rate)}/เทิร์น]: context ~${tokens}/200000. invoke skill "handoff-guard" เพื่อประเมินว่าควรขึ้น session ใหม่ไหม (ถ้าอยู่กลาง atomic op ให้ปิดให้ปลอดภัยก่อน). อย่าเริ่มงานใหญ่ใหม่จนกว่าจะประเมินเสร็จ.`
+      `⚠️ [tier=tier1 · tokens=${tokens} · rate=${Math.round(rate)}/เทิร์น]: context ~${tokens}/${MAX}. invoke skill "handoff-guard" เพื่อประเมินว่าควรขึ้น session ใหม่ไหม (ถ้าอยู่กลาง atomic op ให้ปิดให้ปลอดภัยก่อน). อย่าเริ่มงานใหญ่ใหม่จนกว่าจะประเมินเสร็จ.`
     );
   }
 
@@ -111,7 +112,7 @@ function main() {
     writeFileSync(mp, String(tokens));
     emit(
       `Context ~${tokens} tokens — คาดอีก ~${etaTurns} เทิร์นถึง ${T2}`,
-      `🟡 คาดการณ์ [tier=predict · tokens=${tokens} · rate=${Math.round(rate)}/เทิร์น · etaTurns=${etaTurns}]: context ~${tokens}/200000 โตเฉลี่ย ~${Math.round(rate)}/เทิร์น → อีก ~${etaTurns} เทิร์นจะแตะ ${T2}. ปิด step ปัจจุบันให้จบ แล้ว invoke skill "handoff-guard" เพื่อเตรียม handoff. อย่าเริ่มงานใหญ่ใหม่.`
+      `🟡 คาดการณ์ [tier=predict · tokens=${tokens} · rate=${Math.round(rate)}/เทิร์น · etaTurns=${etaTurns}]: context ~${tokens}/${MAX} โตเฉลี่ย ~${Math.round(rate)}/เทิร์น → อีก ~${etaTurns} เทิร์นจะแตะ ${T2}. ปิด step ปัจจุบันให้จบ แล้ว invoke skill "handoff-guard" เพื่อเตรียม handoff. อย่าเริ่มงานใหญ่ใหม่.`
     );
   }
 

@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-// Deterministic self-test ของ context-guard.mjs — ไม่ต้องรอ session โตจริง
-// สร้าง transcript ปลอมที่มี usage ตามต้องการ แล้วยิง hook ดูว่า block ถูก tier ไหม + marker กันซ้ำ
+// Deterministic self-test ของ context-guard.mjs (Context Manager V2) — ไม่ต้องรอ session โตจริง
+// สร้าง transcript ปลอมที่มี usage ตามต้องการ แล้วยิง hook ดูว่า block ถูก tier ไหม + EWMA/predict + marker กันซ้ำ
+// state.json persist ข้าม run ใน session เดียว → ทดสอบ EWMA ข้ามเทิร์นได้ตรงๆ
 import { spawnSync } from 'node:child_process';
-import { writeFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -29,40 +30,78 @@ function run(sessionId, tokens) {
   return spawnSync('node', [HOOK], { input, encoding: 'utf8' }).stdout.trim();
 }
 
+function readState(sessionId) {
+  const p = join(markerDir, `${sessionId}.state.json`);
+  try { return JSON.parse(readFileSync(p, 'utf8')); } catch { return null; }
+}
+
 let pass = 0, fail = 0;
 const check = (name, cond) => { if (cond) { pass++; console.log('  PASS', name); } else { fail++; console.log('  FAIL', name); } };
 const parse = (s) => { try { return JSON.parse(s); } catch { return null; } };
+const ctxOf = (o) => (o && o.hookSpecificOutput && o.hookSpecificOutput.additionalContext) || '';
 
-console.log('context-guard self-test');
+console.log('context-guard self-test (V2)');
 
-// 1) ต่ำกว่า threshold → ไม่ block
+// ── A. absolute tiers (regression — ต้องคงผ่าน) ──────────────────────────────
+console.log('\n[A] absolute tiers (regression)');
 check('169k → no block (empty output)', run('hg-test-a', 169000) === '');
-
-// 2) เกิน 170k → block tier1
 const o2 = parse(run('hg-test-b', 171000));
 check('171k → decision=block', o2 && o2.decision === 'block');
 check('171k → reason mentions 170000', o2 && /170000/.test(o2.reason || ''));
-check('171k → additionalContext invoke skill', o2 && /handoff-guard/.test(o2.hookSpecificOutput?.additionalContext || ''));
-
-// 3) ยิงซ้ำ session เดิม → เงียบ (marker กัน)
+check('171k → ctx invoke skill + tier1', o2 && /handoff-guard/.test(ctxOf(o2)) && /tier=tier1/.test(ctxOf(o2)));
 check('171k same session again → silent (marker)', run('hg-test-b', 172000) === '');
-
-// 4) เกิน 188k → tier2 (ด่วน)
 const o4 = parse(run('hg-test-c', 188000));
 check('188k → decision=block', o4 && o4.decision === 'block');
-check('188k → tier2 urgent (ด่วน)', o4 && /ด่วน/.test(o4.reason || ''));
+check('188k → tier2 urgent (ด่วน)', o4 && /ด่วน/.test(o4.reason || '') && /tier=tier2/.test(ctxOf(o4)));
 
-// 5) transcript ไม่มี → ไม่ block (เงียบ)
+// ── B. predict — โตสม่ำเสมอ 8k/เทิร์น จาก 150k ────────────────────────────────
+console.log('\n[B] predict (steady growth ~8k/turn)');
+check('B fire#1 150k → baseline, silent (turns<2)', run('hg-predict', 150000) === '');
+check('B fire#2 158k → silent (ETA=4 > K=3)', run('hg-predict', 158000) === '');
+const oP = parse(run('hg-predict', 166000));            // ETA = ceil(22000/8000) = 3 ≤ K
+check('B fire#3 166k → predict fires (block, ยังไม่ถึง 170k)', oP && oP.decision === 'block' && /tier=predict/.test(ctxOf(oP)));
+check('B predict ctx มี etaTurns', oP && /etaTurns=3/.test(ctxOf(oP)));
+const sB = readState('hg-predict');                    // อ่านก่อน perturb ด้วย run ถัดไป
+check('B state.ema ≈ 8000 (EWMA นิ่ง)', sB && Math.abs(sB.ema - 8000) < 100);
+check('B predict ครั้งเดียว/session → ถัดไปเงียบ', run('hg-predict', 167000) === '');
+
+// ── C. cold-start — fire เดียวที่ rate สูงไม่ได้ ยังไม่ยิง predict (turns<2) ────
+console.log('\n[C] cold-start (1 observation)');
+check('C 165k fire เดียว → silent (turns<2, ema=0)', run('hg-cold', 165000) === '');
+const sC = readState('hg-cold');
+check('C state turns=1 ema=0', sC && sC.turns === 1 && sC.ema === 0);
+
+// ── D. spike — delta กระโดดครั้งเดียวถูก EWMA ถ่วง (ema << raw spike) ──────────
+console.log('\n[D] spike dampening');
+run('hg-spike', 100000);                 // baseline
+run('hg-spike', 105000);                 // d=5k → ema=5000
+run('hg-spike', 110000);                 // d=5k → ema=5000
+run('hg-spike', 150000);                 // d=40k spike → ema=0.4*40000+0.6*5000=19000
+const sD = readState('hg-spike');
+check('D ema ดึงลงจาก spike 40k → ~19k (ถ่วงสำเร็จ)', sD && sD.ema > 15000 && sD.ema < 23000);
+check('D ema น้อยกว่าครึ่งของ raw spike (40k)', sD && sD.ema < 20000);
+
+// ── E. compaction — delta ติดลบ ไม่นับ, ไม่ crash, reset baseline ─────────────
+console.log('\n[E] compaction (token ลดฮวบ)');
+check('E 160k baseline → silent', run('hg-comp', 160000) === '');
+check('E 90k (compaction) → silent, ไม่ crash', run('hg-comp', 90000) === '');
+const sE = readState('hg-comp');
+check('E baseline reset เป็น 90000, ema คงเดิม (0)', sE && sE.lastTokens === 90000 && sE.ema === 0);
+
+// ── F. no transcript → silent ────────────────────────────────────────────────
+console.log('\n[F] edge');
 const noFile = spawnSync('node', [HOOK], {
   input: JSON.stringify({ session_id: 'hg-test-d', transcript_path: join(tmp, 'nope.jsonl') }),
   encoding: 'utf8',
 }).stdout.trim();
-check('no transcript → silent', noFile === '');
+check('F no transcript → silent', noFile === '');
 
-// cleanup
-for (const s of ['hg-test-a', 'hg-test-b', 'hg-test-c', 'hg-test-d']) {
-  for (const t of ['t1', 't2']) {
-    const m = join(markerDir, `${s}.${t}`);
+// ── cleanup ──────────────────────────────────────────────────────────────────
+const sessions = ['hg-test-a', 'hg-test-b', 'hg-test-c', 'hg-test-d',
+                  'hg-predict', 'hg-cold', 'hg-spike', 'hg-comp'];
+for (const s of sessions) {
+  for (const ext of ['t1', 't2', 'p', 'state.json']) {
+    const m = join(markerDir, `${s}.${ext}`);
     if (existsSync(m)) rmSync(m);
   }
 }

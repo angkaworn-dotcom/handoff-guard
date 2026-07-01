@@ -42,28 +42,28 @@ const ctxOf = (o) => (o && o.hookSpecificOutput && o.hookSpecificOutput.addition
 
 console.log('context-guard self-test (V2)');
 
-// ── A. absolute tiers (regression — ต้องคงผ่าน · เพดาน 256k: T1=218k, T2=240k) ──
+// ── A. absolute tiers (regression — ต้องคงผ่าน · เพดาน 256k: T1=round(256k·0.85)=217600, T2=round(256k·0.94)=240640) ──
 console.log('\n[A] absolute tiers (regression)');
-check('217k → no block (empty output, ต่ำกว่า T1)', run('hg-test-a', 217000) === '');
+check('217k → no block (empty output, ต่ำกว่า T1=217600)', run('hg-test-a', 217000) === '');
 const o2 = parse(run('hg-test-b', 219000));
 check('219k → decision=block', o2 && o2.decision === 'block');
-check('219k → reason mentions 218000', o2 && /218000/.test(o2.reason || ''));
+check('219k → reason mentions 217600', o2 && /217600/.test(o2.reason || ''));
 check('219k → ctx invoke skill + tier1', o2 && /handoff-guard/.test(ctxOf(o2)) && /tier=tier1/.test(ctxOf(o2)));
 check('219k same session again → silent (marker)', run('hg-test-b', 220000) === '');
 const o4 = parse(run('hg-test-c', 241000));
 check('241k → decision=block', o4 && o4.decision === 'block');
 check('241k → tier2 urgent (ด่วน)', o4 && /ด่วน/.test(o4.reason || '') && /tier=tier2/.test(ctxOf(o4)));
 
-// ── B. predict — โตสม่ำเสมอ 8k/เทิร์น (เป้า T2=240k, K=3 → ยิงช่วง [216k,218k)) ──
+// ── B. predict — โตสม่ำเสมอ 8k/เทิร์น (เป้า T2=240640, K=3 → ยิงช่วง [216640,217600)) ──
 console.log('\n[B] predict (steady growth ~8k/turn)');
-check('B fire#1 200k → baseline, silent (turns<2)', run('hg-predict', 200000) === '');
-check('B fire#2 208k → silent (ETA=4 > K=3)', run('hg-predict', 208000) === '');
-const oP = parse(run('hg-predict', 216000));            // ETA = ceil((240000-216000)/8000) = 3 ≤ K
-check('B fire#3 216k → predict fires (block, ยังไม่ถึง T1=218k)', oP && oP.decision === 'block' && /tier=predict/.test(ctxOf(oP)));
+check('B fire#1 201k → baseline, silent (turns<2)', run('hg-predict', 201000) === '');
+check('B fire#2 209k → silent (ETA=4 > K=3)', run('hg-predict', 209000) === '');   // ETA = ceil((240640-209000)/8000) = 4
+const oP = parse(run('hg-predict', 217000));            // ETA = ceil((240640-217000)/8000) = 3 ≤ K
+check('B fire#3 217k → predict fires (block, ยังไม่ถึง T1=217600)', oP && oP.decision === 'block' && /tier=predict/.test(ctxOf(oP)));
 check('B predict ctx มี etaTurns', oP && /etaTurns=3/.test(ctxOf(oP)));
 const sB = readState('hg-predict');                    // อ่านก่อน perturb ด้วย run ถัดไป
 check('B state.ema ≈ 8000 (EWMA นิ่ง)', sB && Math.abs(sB.ema - 8000) < 100);
-check('B predict ครั้งเดียว/session → ถัดไปเงียบ', run('hg-predict', 217000) === '');
+check('B predict ครั้งเดียว/session → ถัดไปเงียบ', run('hg-predict', 217500) === '');
 
 // ── C. cold-start — fire เดียวที่ rate สูงไม่ได้ ยังไม่ยิง predict (turns<2) ────
 console.log('\n[C] cold-start (1 observation)');

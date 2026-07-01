@@ -9,9 +9,16 @@ import { readFileSync, mkdirSync, existsSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-const T1 = Number(process.env.HANDOFF_GUARD_THRESHOLD || 218000);   // tier1: เตือน/ประเมิน (absolute) = 85% ของ 256k
-const T2 = Number(process.env.HANDOFF_GUARD_THRESHOLD2 || 240000);  // tier2: ด่วน (absolute) + เป้าของ ETA = 94% ของ 256k
-const MAX = Number(process.env.HANDOFF_GUARD_MAX || 256000);        // เพดานบริบท (display) — เกินนี้เริ่มเสียบริบท
+// config.json เขียนโดย scripts/set-max.mjs (ผ่านสั่ง /handoff-guard-max) — persist ข้าม session
+// priority: env var (override ชั่วคราว/testing) > config.json (ตั้งถาวรผ่านคำสั่ง) > hardcoded default
+let fileConfig = {};
+try {
+  fileConfig = JSON.parse(readFileSync(join(homedir(), '.claude', '.handoff-guard', 'config.json'), 'utf8'));
+} catch { fileConfig = {}; }
+
+const MAX = Number(process.env.HANDOFF_GUARD_MAX || fileConfig.max || 256000);         // เพดานบริบท (display) — เกินนี้เริ่มเสียบริบท
+const T1 = Number(process.env.HANDOFF_GUARD_THRESHOLD || fileConfig.t1 || Math.round(MAX * 0.85));   // tier1: เตือน/ประเมิน (absolute)
+const T2 = Number(process.env.HANDOFF_GUARD_THRESHOLD2 || fileConfig.t2 || Math.round(MAX * 0.94));  // tier2: ด่วน (absolute) + เป้าของ ETA
 const K = Number(process.env.HANDOFF_GUARD_PREDICT_TURNS || 3);     // lead time (เทิร์น) ของ predict trigger
 const ALPHA = Number(process.env.HANDOFF_GUARD_EMA_ALPHA || 0.4);   // น้ำหนัก EWMA ของ delta ล่าสุด
 const FLOOR = 500;  // rate ต่ำสุดที่ยอมใช้หาร (กัน ETA ระเบิดเป็น Infinity)

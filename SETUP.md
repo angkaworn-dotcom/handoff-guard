@@ -10,6 +10,8 @@
 | `~/.claude/hooks/session-resume.mjs` | **SessionStart hook** — เจอไฟล์ handoff ในโปรเจกต์/last-handoff → ฉีดตัวชี้ให้ session ใหม่อ่าน |
 | `~/.claude/skills/handoff-guard/SKILL.md` | **AI eval (L3+L4)** — ตัดสินว่าควรขึ้น session ใหม่ไหม + ทำ handoff + verify ตอน resume |
 | `~/.claude/.handoff-guard/<session>.state.json` | **L2 state** — `{lastTokens, ema, turns}` ต่อ session (hook เขียน/อ่านเอง คำนวณ EWMA ข้ามเทิร์น) |
+| `~/.claude/.handoff-guard/config.json` | **MAX/T1/T2 ที่ตั้งเอง** — เขียนโดย `scripts/set-max.mjs` (ผ่านคำสั่ง `/handoff-guard-max`), hook อ่านทุกเทิร์น (ไม่มีไฟล์ = ใช้ default 256000) |
+| `~/.claude/commands/handoff-guard-max.md` | **slash command** — `/handoff-guard-max <max>` ตั้งเพดานเองโดยไม่ต้องแก้ `settings.json` |
 
 ## settings.json (`~/.claude/settings.json`)
 
@@ -59,8 +61,9 @@ node "C:/Users/Dell/.claude/skills/handoff-guard/scripts/selftest.mjs"
 
 | อยากได้ | ทำ |
 |--------|----|
-| เตือน (absolute) เร็ว/ช้าขึ้น | env `HANDOFF_GUARD_THRESHOLD` (default 218000 = 85%×256k), `HANDOFF_GUARD_THRESHOLD2` (240000 = 94%×256k) |
-| เปลี่ยนเพดานบริบท (display) | env `HANDOFF_GUARD_MAX` (default 256000) — เกินนี้เริ่มเสียบริบท · เปลี่ยนเพดานแล้วควรปรับ T1/T2 ตาม (85%/94%) |
+| เปลี่ยนเพดานบริบท (MAX) แบบเร็ว ไม่แตะ settings.json | สั่ง `/handoff-guard-max <max>` (เช่น `/handoff-guard-max 200000`) — คำนวณ T1/T2 ให้อัตโนมัติ (85%/94%), เขียน `~/.claude/.handoff-guard/config.json`, มีผลเทิร์นถัดไป · `/handoff-guard-max reset` กลับ 256000 · ติดตั้งคำสั่งนี้ครั้งเดียว: `cp commands/handoff-guard-max.md ~/.claude/commands/` |
+| เตือน (absolute) เร็ว/ช้าขึ้น (แบบ manual/override) | env `HANDOFF_GUARD_THRESHOLD` (default 218000 = 85%×256k), `HANDOFF_GUARD_THRESHOLD2` (240000 = 94%×256k) — env ชนะ config.json เสมอ |
+| เปลี่ยนเพดานบริบท (display) แบบ manual/override | env `HANDOFF_GUARD_MAX` (default 256000) — เกินนี้เริ่มเสียบริบท · เปลี่ยนเพดานแล้วควรปรับ T1/T2 ตาม (85%/94%) |
 | predict เตือนล่วงหน้ามาก/น้อย | env `HANDOFF_GUARD_PREDICT_TURNS` (K, default 3) — มาก=เตือนเบาๆ เร็ว, น้อย=ดึงใกล้ค่อยเตือน |
 | predict ไวต่อ spike มาก/น้อย | env `HANDOFF_GUARD_EMA_ALPHA` (default 0.4) — สูง=react ไว แต่กระตุกตาม spike, ต่ำ=นิ่งแต่ lag |
 | auto-compact ยิงก่อน 218k (ไม่ทันเตือน) | ลด threshold ลง (เช่น 200000) — สังเกตจาก live ว่า compaction เกิดที่กี่ token |

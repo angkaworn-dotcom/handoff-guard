@@ -39,6 +39,8 @@ node ~/.claude/skills/handoff-guard/scripts/ensure-handoff.mjs
 # 2) hooks
 cp hooks/context-guard.mjs hooks/session-resume.mjs  ~/.claude/hooks/
 # 3) เพิ่ม hooks ใน ~/.claude/settings.json (ดู settings.example.json — แก้ path ตามเครื่อง)
+# 4) (ทางเลือก) slash command /handoff-guard-max — ตั้งเพดาน MAX เองไม่ต้องแก้ env var
+cp commands/handoff-guard-max.md  ~/.claude/commands/
 ```
 
 ต้องมี `node` บน PATH (hooks เขียนด้วย Node = ข้ามแพลตฟอร์ม ไม่พึ่ง jq/bash)
@@ -57,6 +59,10 @@ Live test: ตั้ง `HANDOFF_GUARD_THRESHOLD=1` ชั่วคราว →
 
 ## จูน
 
+**วิธีเร็วสุด — สั่ง `/handoff-guard-max <max>`** (เช่น `/handoff-guard-max 200000`) ตั้งเพดานเองได้ทันที ไม่ต้องแก้ `settings.json`/env — คำนวณ tier1/tier2 (85%/94%) ให้อัตโนมัติ, บันทึกที่ `~/.claude/.handoff-guard/config.json`, มีผลเทิร์นถัดไปไม่ต้อง restart · `/handoff-guard-max reset` กลับ default
+
+หรือแก้ตรง env ก็ได้ (env ชนะ config.json เสมอ — เหมาะกับ override ชั่วคราว/testing):
+
 | env | default | ความหมาย |
 |-----|---------|----------|
 | `HANDOFF_GUARD_THRESHOLD` | 218000 | tier1 (absolute) — เตือน/ประเมิน · = 85% ของเพดาน 256k |
@@ -65,6 +71,6 @@ Live test: ตั้ง `HANDOFF_GUARD_THRESHOLD=1` ชั่วคราว →
 | `HANDOFF_GUARD_PREDICT_TURNS` | 3 | K — predict ยิงเมื่อคาดอีก ≤ K เทิร์นจะเต็ม |
 | `HANDOFF_GUARD_EMA_ALPHA` | 0.4 | น้ำหนัก EWMA (สูง=react ไว, ต่ำ=นิ่ง) |
 
-> เพดาน 256k → T1/T2 = 85%/94% · เปลี่ยนเพดานในอนาคต: T1 = MAX×0.85, T2 = MAX×0.94
+> priority ของ MAX/T1/T2: env var > `config.json` (ตั้งผ่าน `/handoff-guard-max`) > hardcoded default (256k) · เปลี่ยนเพดานเอง: T1 = MAX×0.85, T2 = MAX×0.94
 
 ดูรายละเอียดเต็มใน [SETUP.md](SETUP.md) · ดีไซน์ V2 ใน [docs/V2-design.md](docs/V2-design.md)

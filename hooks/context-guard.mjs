@@ -59,8 +59,8 @@ function main() {
 
   // เพดาน/threshold — คำนวณหลังรู้โมเดล (env > config.json pin > โมเดลที่ detect > fallback)
   const MAX = Number(process.env.HANDOFF_GUARD_MAX || fileConfig.max || windowForModel(model));
-  const T1 = Number(process.env.HANDOFF_GUARD_THRESHOLD || fileConfig.t1 || Math.round(MAX * 0.85));  // tier1: เตือน/ประเมิน
-  const T2 = Number(process.env.HANDOFF_GUARD_THRESHOLD2 || fileConfig.t2 || Math.round(MAX * 0.94)); // tier2: ด่วน + เป้า ETA
+  const T1 = Number(process.env.HANDOFF_GUARD_THRESHOLD || fileConfig.t1 || Math.round(MAX * 0.72));  // tier1: เตือน/ประเมิน (72% → ยิงก่อน CC auto-compact ~85%)
+  const T2 = Number(process.env.HANDOFF_GUARD_THRESHOLD2 || fileConfig.t2 || Math.round(MAX * 0.85)); // tier2: ด่วน + เป้า ETA
 
   const dir = join(homedir(), '.claude', '.handoff-guard');
   mkdirSync(dir, { recursive: true });

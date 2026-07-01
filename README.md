@@ -68,10 +68,10 @@ cp commands/handoff-guard-max.md  ~/.claude/commands/
 ## Verify
 
 ```bash
-node ~/.claude/skills/handoff-guard/scripts/selftest.mjs   # ต้อง ALL PASS (21 เคส)
+node ~/.claude/skills/handoff-guard/scripts/selftest.mjs   # ต้อง ALL PASS (28 เคส)
 ```
-ครอบ: absolute tier (regression) + predict (โตสม่ำเสมอ→ยิงก่อน 218k) + cold-start + spike-dampening + compaction
-Live test: ตั้ง `HANDOFF_GUARD_THRESHOLD=1` ชั่วคราว → คุย 1 ประโยค → Claude ควรถูก block แล้วเด้งไป skill `handoff-guard` → คืน 218000 + ลบ marker ใน `~/.claude/.handoff-guard/` (`*.{p,t1,t2}` + `*.state.json`)
+ครอบ: absolute tier (regression) + predict (โตสม่ำเสมอ→ยิงก่อน T1) + cold-start + spike-dampening + compaction + **model-adaptive ceiling (opus 256k vs sonnet 200k)**
+Live test: ตั้ง `HANDOFF_GUARD_THRESHOLD=1` ชั่วคราว → คุย 1 ประโยค → Claude ควรถูก block แล้วเด้งไป skill `handoff-guard` → เสร็จแล้ว `unset HANDOFF_GUARD_THRESHOLD` (กลับไป auto) + ลบ marker ใน `~/.claude/.handoff-guard/` (`*.{p,t1,t2}` + `*.state.json`)
 
 ## จูน
 
@@ -81,12 +81,13 @@ Live test: ตั้ง `HANDOFF_GUARD_THRESHOLD=1` ชั่วคราว →
 
 | env | default | ความหมาย |
 |-----|---------|----------|
-| `HANDOFF_GUARD_THRESHOLD` | 218000 | tier1 (absolute) — เตือน/ประเมิน · = 85% ของเพดาน 256k |
-| `HANDOFF_GUARD_THRESHOLD2` | 240000 | tier2 (absolute) — ด่วน + เป้าของ ETA · = 94% ของเพดาน 256k |
-| `HANDOFF_GUARD_MAX` | 256000 | เพดานบริบท (display) — เกินนี้เริ่มเสียบริบท |
+| `HANDOFF_GUARD_THRESHOLD` | `round(MAX×0.85)` | tier1 (absolute) — เตือน/ประเมิน |
+| `HANDOFF_GUARD_THRESHOLD2` | `round(MAX×0.94)` | tier2 (absolute) — ด่วน + เป้าของ ETA |
+| `HANDOFF_GUARD_MAX` | auto-detect ตามโมเดล | เพดานบริบท — opus 256k · sonnet/haiku 200k · ไม่รู้จัก 200k |
 | `HANDOFF_GUARD_PREDICT_TURNS` | 3 | K — predict ยิงเมื่อคาดอีก ≤ K เทิร์นจะเต็ม |
 | `HANDOFF_GUARD_EMA_ALPHA` | 0.4 | น้ำหนัก EWMA (สูง=react ไว, ต่ำ=นิ่ง) |
 
-> priority ของ MAX/T1/T2: env var > `config.json` (ตั้งผ่าน `/handoff-guard-max`) > hardcoded default (256k) · เปลี่ยนเพดานเอง: T1 = MAX×0.85, T2 = MAX×0.94
+> priority ของ MAX: **env var > `config.json` (pin ผ่าน `/handoff-guard-max`, ทุกโมเดล) > auto-detect จาก `message.model` > fallback 200k** · T1/T2 ก็ priority เดียวกัน (env → config → `round(MAX×0.85)` / `round(MAX×0.94)`)
+> **สลับ Opus/Sonnet บ่อย → ปล่อย auto-detect (อย่า pin)** · จูน auto-compact ให้โมเดลเดียว → pin ด้วย `/handoff-guard-max`
 
 ดูรายละเอียดเต็มใน [SETUP.md](SETUP.md) · ดีไซน์ V2 ใน [docs/V2-design.md](docs/V2-design.md)

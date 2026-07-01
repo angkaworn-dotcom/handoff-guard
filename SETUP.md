@@ -8,11 +8,11 @@
 
 | ไฟล์ | บทบาท |
 |------|-------|
-| `~/.claude/hooks/context-guard.mjs` | **Stop hook** — L1 วัด token จริงทุกเทิร์น + L2 EWMA growth → ETA · ทริก (predict / ≥218k / ≥240k) → block + ฉีดให้ invoke skill `handoff-guard` |
+| `~/.claude/hooks/context-guard.mjs` | **Stop hook** — L1 วัด token + โมเดลจริงทุกเทิร์น + L2 EWMA growth → ETA · เพดาน **auto-detect ตามโมเดล** (opus 256k · sonnet/haiku 200k) · ทริก (predict / ≥T1 / ≥T2) → block + ฉีดให้ invoke skill `handoff-guard` |
 | `~/.claude/hooks/session-resume.mjs` | **SessionStart hook** — เจอไฟล์ handoff ในโปรเจกต์/last-handoff → ฉีดตัวชี้ให้ session ใหม่อ่าน |
 | `~/.claude/skills/handoff-guard/SKILL.md` | **AI eval (L3+L4)** — ตัดสินว่าควรขึ้น session ใหม่ไหม + ทำ handoff + verify ตอน resume |
 | `~/.claude/.handoff-guard/<session>.state.json` | **L2 state** — `{lastTokens, ema, turns}` ต่อ session (hook เขียน/อ่านเอง คำนวณ EWMA ข้ามเทิร์น) |
-| `~/.claude/.handoff-guard/config.json` | **MAX/T1/T2 ที่ตั้งเอง** — เขียนโดย `scripts/set-max.mjs` (ผ่านคำสั่ง `/handoff-guard-max`), hook อ่านทุกเทิร์น (ไม่มีไฟล์ = ใช้ default 256000) |
+| `~/.claude/.handoff-guard/config.json` | **MAX/T1/T2 ที่ pin เอง** — เขียนโดย `scripts/set-max.mjs` (ผ่านคำสั่ง `/handoff-guard-max`), hook อ่านทุกเทิร์น · **pin ทุกโมเดล (override auto-detect)** · ไม่มีไฟล์ = auto-detect ตามโมเดล |
 | `~/.claude/commands/handoff-guard-max.md` | **slash command** — `/handoff-guard-max <max>` ตั้งเพดานเองโดยไม่ต้องแก้ `settings.json` |
 
 ## settings.json (`~/.claude/settings.json`)
@@ -59,16 +59,28 @@ node "C:/Users/Dell/.claude/skills/handoff-guard/scripts/selftest.mjs"
 - ตั้งชั่วคราว `HANDOFF_GUARD_THRESHOLD=1` (env หรือแก้ default) → คุยอะไรก็ได้ 1 ประโยค → Claude ควรถูก "block" แล้วเด้งมา invoke `handoff-guard` ทันที
 - ผ่านแล้วคืนค่า 218000 + ลบ marker เก่า: ลบ `~/.claude/.handoff-guard/*.{p,t1,t2}` + `*.state.json`
 
+## เพดาน MAX มาจากไหน (priority)
+
+hook เลือก MAX ต่อเทิร์นตามลำดับ **หยุดที่ตัวแรกที่มีค่า**:
+
+1. **env** `HANDOFF_GUARD_MAX` — override ชั่วคราว/testing (ชนะทุกอย่าง)
+2. **config.json** (`fileConfig.max`) — pin ถาวรผ่าน `/handoff-guard-max <n>` · **override auto-detect ทุกโมเดล**
+3. **auto-detect จากโมเดล** — อ่าน `message.model` ของ assistant message ล่าสุดใน transcript → `opus` 256k · `sonnet`/`haiku`/ไม่รู้จัก 200k (ไม่รู้จัก = สมมติเล็กสุด ยิงเร็วดีกว่าไม่ยิง)
+
+T1/T2 ก็ priority เดียวกัน (env → config → `round(MAX×0.85)` / `round(MAX×0.94)`) · โมเดลเปลี่ยนกลางเซสชันได้ → เพดานปรับตามอัตโนมัติถ้าไม่ได้ pin
+
+> **สลับ Opus/Sonnet บ่อย → อย่า pin** (ปล่อย auto-detect) · **จูน auto-compact ให้โมเดลเดียว → pin ด้วย `/handoff-guard-max`**
+
 ## Tune
 
 | อยากได้ | ทำ |
 |--------|----|
-| เปลี่ยนเพดานบริบท (MAX) แบบเร็ว ไม่แตะ settings.json | สั่ง `/handoff-guard-max <max>` (เช่น `/handoff-guard-max 200000`) — คำนวณ T1/T2 ให้อัตโนมัติ (85%/94%), เขียน `~/.claude/.handoff-guard/config.json`, มีผลเทิร์นถัดไป · `/handoff-guard-max reset` กลับ 256000 · ติดตั้งคำสั่งนี้ครั้งเดียว: `cp commands/handoff-guard-max.md ~/.claude/commands/` |
-| เตือน (absolute) เร็ว/ช้าขึ้น (แบบ manual/override) | env `HANDOFF_GUARD_THRESHOLD` (default 218000 = 85%×256k), `HANDOFF_GUARD_THRESHOLD2` (240000 = 94%×256k) — env ชนะ config.json เสมอ |
-| เปลี่ยนเพดานบริบท (display) แบบ manual/override | env `HANDOFF_GUARD_MAX` (default 256000) — เกินนี้เริ่มเสียบริบท · เปลี่ยนเพดานแล้วควรปรับ T1/T2 ตาม (85%/94%) |
+| ล็อกเพดาน (MAX) เองแบบเร็ว ไม่แตะ settings.json | สั่ง `/handoff-guard-max <max>` (เช่น `/handoff-guard-max 200000`) — คำนวณ T1/T2 ให้ (85%/94%), เขียน config.json, มีผลเทิร์นถัดไป · **pin ทุกโมเดล** · `/handoff-guard-max reset` = กลับไป auto-detect · ติดตั้งครั้งเดียว: `cp commands/handoff-guard-max.md ~/.claude/commands/` |
+| เตือน (absolute) เร็ว/ช้าขึ้น (แบบ manual/override) | env `HANDOFF_GUARD_THRESHOLD` / `HANDOFF_GUARD_THRESHOLD2` (default = `round(MAX×0.85)` / `round(MAX×0.94)`) — env ชนะ config.json เสมอ |
+| บังคับเพดาน (display) แบบ manual/override | env `HANDOFF_GUARD_MAX` (default = auto-detect ตามโมเดล) — เกินนี้เริ่มเสียบริบท · เปลี่ยนแล้วควรปรับ T1/T2 ตาม (85%/94%) |
 | predict เตือนล่วงหน้ามาก/น้อย | env `HANDOFF_GUARD_PREDICT_TURNS` (K, default 3) — มาก=เตือนเบาๆ เร็ว, น้อย=ดึงใกล้ค่อยเตือน |
 | predict ไวต่อ spike มาก/น้อย | env `HANDOFF_GUARD_EMA_ALPHA` (default 0.4) — สูง=react ไว แต่กระตุกตาม spike, ต่ำ=นิ่งแต่ lag |
-| auto-compact ยิงก่อน 218k (ไม่ทันเตือน) | ลด threshold ลง (เช่น 200000) — สังเกตจาก live ว่า compaction เกิดที่กี่ token |
+| auto-compact ยิงก่อน T1 (ไม่ทันเตือน) | pin เพดานต่ำลง `/handoff-guard-max <ต่ำกว่าจุด compact จริง>` — สังเกตจาก live ว่า compaction เกิดที่กี่ token |
 | รีเซ็ตการเตือนของ session | ลบ marker `~/.claude/.handoff-guard/<session_id>.{p,t1,t2}` + `.state.json` (รีเซ็ต EWMA) |
 
 ## ข้อจำกัด (ตรงไปตรงมา)

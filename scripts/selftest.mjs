@@ -11,11 +11,11 @@ const HOOK = join(homedir(), '.claude', 'hooks', 'context-guard.mjs');
 const tmp = mkdtempSync(join(tmpdir(), 'hg-'));
 const markerDir = join(homedir(), '.claude', '.handoff-guard');
 
-function makeTranscript(tokens) {
+function makeTranscript(tokens, model = 'claude-opus-4-8') {
   const p = join(tmp, `t-${tokens}-${Math.random().toString(36).slice(2)}.jsonl`);
   const lines = [
     JSON.stringify({ type: 'user', message: { role: 'user' } }),
-    JSON.stringify({ type: 'assistant', message: { usage: {
+    JSON.stringify({ type: 'assistant', message: { model, usage: {
       input_tokens: tokens - 100, cache_read_input_tokens: 50,
       cache_creation_input_tokens: 30, output_tokens: 20 } } }),
   ];
@@ -23,9 +23,9 @@ function makeTranscript(tokens) {
   return p;
 }
 
-function run(sessionId, tokens) {
+function run(sessionId, tokens, model) {
   const input = JSON.stringify({
-    session_id: sessionId, transcript_path: makeTranscript(tokens), hook_event_name: 'Stop',
+    session_id: sessionId, transcript_path: makeTranscript(tokens, model), hook_event_name: 'Stop',
   });
   return spawnSync('node', [HOOK], { input, encoding: 'utf8' }).stdout.trim();
 }
@@ -41,6 +41,12 @@ const parse = (s) => { try { return JSON.parse(s); } catch { return null; } };
 const ctxOf = (o) => (o && o.hookSpecificOutput && o.hookSpecificOutput.additionalContext) || '';
 
 console.log('context-guard self-test (V2)');
+
+// config.json หรือ env override จะ mask การ detect โมเดล → เตือนกัน [A][B][G] เพี้ยนโดยไม่รู้ตัว
+if (existsSync(join(markerDir, 'config.json')) || process.env.HANDOFF_GUARD_MAX
+    || process.env.HANDOFF_GUARD_THRESHOLD || process.env.HANDOFF_GUARD_THRESHOLD2) {
+  console.log('⚠️  พบ config.json หรือ HANDOFF_GUARD_* env — override auto-detect: เทสต์ [A][B][G] อาจไม่ตรง');
+}
 
 // ── A. absolute tiers (regression — ต้องคงผ่าน · เพดาน 256k: T1=round(256k·0.85)=217600, T2=round(256k·0.94)=240640) ──
 console.log('\n[A] absolute tiers (regression)');
@@ -96,9 +102,27 @@ const noFile = spawnSync('node', [HOOK], {
 }).stdout.trim();
 check('F no transcript → silent', noFile === '');
 
+// ── G. model-adaptive ceiling (auto-detect จาก message.model) ────────────────
+console.log('\n[G] model-adaptive ceiling');
+// Sonnet เพดาน 200k → T1=170000, T2=188000
+check('G sonnet 169k → silent (< T1=170000)', run('hg-son-a', 169000, 'claude-sonnet-5') === '');
+const gS = parse(run('hg-son-b', 171000, 'claude-sonnet-5'));
+check('G sonnet 171k → tier1 block (≥170000)', gS && gS.decision === 'block' && /tier=tier1/.test(ctxOf(gS)));
+check('G sonnet reason อ้าง 170000 (ไม่ใช่ 217600)', gS && /170000/.test(gS.reason || ''));
+const gS2 = parse(run('hg-son-c', 189000, 'claude-sonnet-5'));
+check('G sonnet 189k → tier2 ด่วน (≥188000)', gS2 && gS2.decision === 'block' && /tier=tier2/.test(ctxOf(gS2)));
+// Opus เพดาน 256k → 217k ยังไม่ block (โมเดลต่างเพดานต่าง จาก transcript เดียวกัน)
+check('G opus 217k → silent (< T1=217600)', run('hg-op-a', 217000, 'claude-opus-4-8') === '');
+const gO = parse(run('hg-op-b', 219000, 'claude-opus-4-8'));
+check('G opus 219k → tier1 block (≥217600)', gO && gO.decision === 'block' && /tier=tier1/.test(ctxOf(gO)));
+// โมเดลไม่รู้จัก/ว่าง → fallback 200000 → T1=170000 (ยิงเร็ว = ปลอดภัย)
+const gU = parse(run('hg-unk', 171000, 'weird-model-x'));
+check('G unknown model 171k → tier1 (fallback 200k)', gU && gU.decision === 'block' && /tier=tier1/.test(ctxOf(gU)));
+
 // ── cleanup ──────────────────────────────────────────────────────────────────
 const sessions = ['hg-test-a', 'hg-test-b', 'hg-test-c', 'hg-test-d',
-                  'hg-predict', 'hg-cold', 'hg-spike', 'hg-comp'];
+                  'hg-predict', 'hg-cold', 'hg-spike', 'hg-comp',
+                  'hg-son-a', 'hg-son-b', 'hg-son-c', 'hg-op-a', 'hg-op-b', 'hg-unk'];
 for (const s of sessions) {
   for (const ext of ['t1', 't2', 'p', 'state.json']) {
     const m = join(markerDir, `${s}.${ext}`);

@@ -8,7 +8,6 @@ import { mkdirSync, existsSync, writeFileSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-const DEFAULT_MAX = 256000;
 const MIN_MAX = 50000;
 const MAX_MAX = 2000000; // กันพิมพ์ผิด (long-context beta สูงสุดที่รู้จักตอนนี้ ~1M)
 
@@ -24,7 +23,7 @@ const arg0 = (process.argv[2] || '').trim().toLowerCase();
 
 if (!arg0 || arg0 === 'reset' || arg0 === 'default') {
   if (existsSync(configPath)) unlinkSync(configPath);
-  console.log(`✅ รีเซ็ตแล้ว — กลับไปใช้ค่า default: MAX=${DEFAULT_MAX} (tier1=${Math.round(DEFAULT_MAX * 0.85)}, tier2=${Math.round(DEFAULT_MAX * 0.94)})`);
+  console.log('✅ รีเซ็ตแล้ว — ลบ config, กลับไป auto-detect เพดานจากโมเดลต่อเทิร์น (opus 256k · sonnet/haiku 200k)');
   process.exit(0);
 }
 
@@ -44,4 +43,5 @@ mkdirSync(dir, { recursive: true });
 writeFileSync(configPath, JSON.stringify({ max, t1, t2 }, null, 2));
 
 console.log(`✅ ตั้งเพดานใหม่: MAX=${max}, tier1(เตือน)=${t1}, tier2(ด่วน)=${t2}`);
-console.log(`   บันทึกที่ ${configPath} — มีผลตั้งแต่เทิร์นถัดไป ไม่ต้อง restart session`);
+console.log(`   บันทึกที่ ${configPath} — มีผลเทิร์นถัดไป · pin ทุกโมเดล (override auto-detect)`);
+console.log('   กลับไป auto-detect: node set-max.mjs reset (หรือ /handoff-guard-max reset)');

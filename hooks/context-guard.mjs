@@ -10,15 +10,17 @@ import { homedir } from 'node:os';
 import { join } from 'node:path';
 
 // config.json เขียนโดย scripts/set-max.mjs (ผ่านสั่ง /handoff-guard-max) — persist ข้าม session
-// priority: env var (override ชั่วคราว/testing) > config.json (ตั้งถาวรผ่านคำสั่ง) > hardcoded default
+// priority ของ MAX: env (override ชั่วคราว/testing) > config.json (pin ถาวรผ่านคำสั่ง)
+//                   > เพดานของโมเดลที่ detect จาก transcript > fallback 200000 (เล็กสุด = ปลอดภัย)
 let fileConfig = {};
 try {
   fileConfig = JSON.parse(readFileSync(join(homedir(), '.claude', '.handoff-guard', 'config.json'), 'utf8'));
 } catch { fileConfig = {}; }
 
-const MAX = Number(process.env.HANDOFF_GUARD_MAX || fileConfig.max || 256000);         // เพดานบริบท (display) — เกินนี้เริ่มเสียบริบท
-const T1 = Number(process.env.HANDOFF_GUARD_THRESHOLD || fileConfig.t1 || Math.round(MAX * 0.85));   // tier1: เตือน/ประเมิน (absolute)
-const T2 = Number(process.env.HANDOFF_GUARD_THRESHOLD2 || fileConfig.t2 || Math.round(MAX * 0.94));  // tier2: ด่วน (absolute) + เป้าของ ETA
+// เพดาน context ต่อโมเดล — auto-detect ต่อเทิร์นจาก message.model (transcript บันทึกให้ + เปลี่ยนกลางเซสชันได้)
+// opus 256k · sonnet/haiku/ไม่รู้จัก 200k (ไม่รู้จัก = สมมติเล็กสุด → guard ยิงเร็วดีกว่าไม่ยิงเลยบนโมเดลเพดานต่ำ)
+const windowForModel = (m) => /opus/.test(m) ? 256000 : 200000;
+
 const K = Number(process.env.HANDOFF_GUARD_PREDICT_TURNS || 3);     // lead time (เทิร์น) ของ predict trigger
 const ALPHA = Number(process.env.HANDOFF_GUARD_EMA_ALPHA || 0.4);   // น้ำหนัก EWMA ของ delta ล่าสุด
 const FLOOR = 500;  // rate ต่ำสุดที่ยอมใช้หาร (กัน ETA ระเบิดเป็น Infinity)
@@ -35,9 +37,10 @@ function main() {
   const transcript = input.transcript_path || '';
   if (!transcript || !existsSync(transcript)) process.exit(0);
 
-  // L1 — token ปัจจุบัน = usage ของ assistant message ล่าสุด
+  // L1 — token + โมเดลปัจจุบัน = usage/model ของ assistant message ล่าสุด
   // (input + cache_read + cache_creation + output = ขนาด context ที่โมเดลเห็นรอบนั้น)
   let tokens = 0;
+  let model = '';
   try {
     const lines = readFileSync(transcript, 'utf8').split('\n');
     for (const line of lines) {
@@ -49,9 +52,15 @@ function main() {
       if (u) {
         tokens = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0)
                + (u.cache_creation_input_tokens || 0) + (u.output_tokens || 0);
+        model = (obj.message.model || model);   // โมเดลของ message ที่ให้ token ล่าสุด
       }
     }
   } catch { process.exit(0); }
+
+  // เพดาน/threshold — คำนวณหลังรู้โมเดล (env > config.json pin > โมเดลที่ detect > fallback)
+  const MAX = Number(process.env.HANDOFF_GUARD_MAX || fileConfig.max || windowForModel(model));
+  const T1 = Number(process.env.HANDOFF_GUARD_THRESHOLD || fileConfig.t1 || Math.round(MAX * 0.85));  // tier1: เตือน/ประเมิน
+  const T2 = Number(process.env.HANDOFF_GUARD_THRESHOLD2 || fileConfig.t2 || Math.round(MAX * 0.94)); // tier2: ด่วน + เป้า ETA
 
   const dir = join(homedir(), '.claude', '.handoff-guard');
   mkdirSync(dir, { recursive: true });

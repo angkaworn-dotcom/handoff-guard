@@ -1,78 +1,99 @@
-# handoff-guard — Context Manager (V2)
+# handoff-guard
 
 > [ภาษาไทย](README.md)
 
-A Claude Code skill + hooks that make **handoff-when-context-is-nearly-full accurate** — instead of relying on soft rules in CLAUDE.md/memory (which the model tends to forget/ignore until context is at 256k), it uses a **Stop hook that reads real token counts every turn** as the trigger + **AI judgment** for whether to start a fresh session + a **chip/handoff doc** to make continuing easy.
+When a Claude Code session runs long, the context fills up and Claude Code will **auto-compact** — it compresses the conversation by throwing away older parts, which often loses or garbles whatever you were in the middle of. The usual workaround is a soft rule in CLAUDE.md/memory like "when it's nearly full, summarize and hand off," but the model tends to forget, or lets it fill up first.
 
-> **V2 = predictive.** It adds a "time dimension" — instead of just waiting for tokens to hit 218k, it tracks the context growth rate across turns (EWMA) → **predicts how many turns until it's full** → warns ahead of time, before things get critical, while keeping the original thresholds as a safety net. The slug is still `handoff-guard` (invoke it by that name).
+**handoff-guard fixes that.** It's a Claude Code skill + hooks that measure the real token count every turn. When the context is nearly full it **stops Claude and forces it to write a hand-off document first**. Then a new session reads that document and picks up right where you left off — no reliance on the model's memory.
 
-## 4 layers: Observe → Predict → Decide → Recover
+## How it works
 
-| Layer | Responsibility | Lives in |
-|-------|---------|--------|
-| **L1 Observe** | Read real token counts + delta/turn | `hooks/context-guard.mjs` (deterministic) |
-| **L2 Predict** | EWMA growth → ETA "how many turns until 240k" | `hooks/context-guard.mjs` (deterministic) |
-| **L3 Decide** | Finish the current step vs. hand off (based on which tier fired) | `SKILL.md` (AI) |
-| **L4 Recover** | Resume → **verify** → continue | `hooks/session-resume.mjs` + `SKILL.md` |
+Every time Claude finishes a reply, the hook does four things:
 
-**Dependency:** Uses Matt Pocock's `handoff` skill ([mattpocock/skills](https://github.com/mattpocock/skills) → `skills/productivity/handoff`) to produce the handoff doc — this guard **requires it** (it's higher quality: saves to temp so it doesn't clutter the repo, suggested-skills, avoids duplication, redacts secrets). **If it isn't installed yet → it's installed automatically** via `scripts/ensure-handoff.mjs` (fetched from upstream → falls back to the vendored copy in `vendor/handoff/` if offline), then a restart is needed. Otherwise the only dependency is `node` on PATH.
+1. **Observe** — read the real token count from the transcript
+2. **Predict** — remember the context growth rate and estimate "how many turns until it's full"
+3. **Warn** — if it's nearly full (or predicted to fill up soon), stop Claude and tell it to hand off
+4. **Recover** — when a new session starts, a second hook points Claude at the hand-off doc before it begins
 
-> `vendor/handoff/` = an offline copy of the `handoff` skill (© Matt Pocock, mattpocock/skills) bundled as a fallback for the ensure step.
+There are three warning levels:
 
-## Why this is more accurate than soft rules
+- 🟡 **Ahead of time** — predicted to fill up in a few turns (still time to wrap up cleanly)
+- ⚠️ **Nearly full** — reached 85% of the ceiling
+- 🔴 **Urgent** — reached 94% of the ceiling
 
-| Part | Mechanism |
-|------|-----------|
-| **Observe** | The `Stop` hook (`hooks/context-guard.mjs`) reads `transcript_path` → sums the `usage` of the latest assistant message (`input + cache_read + cache_creation + output`) = the real token count the API reported |
-| **Predict** | Keeps `<session>.state.json` `{lastTokens, ema, turns}` → EWMA growth (α=0.4, resilient to spikes from reading large files) → `etaTurns = ceil((240k − tokens) / max(ema, 500))` |
-| **Trigger** | `decision:block` wakes Claude up to do a handoff · priority: **predict** (etaTurns ≤ K=3, not yet at 218k) → **tier1** (≥218k) → **tier2** (≥240k, urgent) · markers `.p/.t1/.t2` prevent repeat warnings · sends `tier/tokens/rate/etaTurns` to the skill |
-| **Decision** | The `SKILL.md` skill — AI judgment (close out the atomic op first → hand off now vs. finish the step first) · predict = plenty of buffer, can close the step first · more flexible than a hard cutoff |
-| **Recovery** | The `SessionStart` hook (`hooks/session-resume.mjs`) finds `HANDOFF.md`/last-handoff → injects a pointer for the new session to read → the skill runs **verify** (git status/branch/`npm run check`/does it match the handoff) before continuing |
+It figures out each model's ceiling on its own (Opus 256k, Sonnet/Haiku 200k), and if a session gets compacted and then grows back toward full again, it will warn a second time.
 
-> Limitations: predict needs ≥2 turns for the EWMA to settle (a session that spikes fast from the start → the absolute tier takes over instead) · if auto-compact fires before the threshold, lower the threshold (tune via env) · a chip/spawn_task is a model judgment call, it can't be made deterministic
+## Requirements
+
+- **Node.js** on PATH (the hooks are written in Node, so they run on any OS — no jq/bash needed)
+- Matt Pocock's `handoff` skill (the thing that actually writes the hand-off doc) — **installed automatically if you don't have it**
 
 ## Install
 
+One command — copies the files, wires up `settings.json`, and installs the dependency:
+
 ```bash
-# 1) skill (includes scripts/ + vendor/ — vendor has a copy of handoff for auto-install)
+# Windows (PowerShell)
+pwsh -File install.ps1
+# macOS / Linux
+sh install.sh
+```
+
+It's safe to re-run (overwrites with the latest, only adds hooks that aren't already there without clobbering yours, and keeps a `.bak` backup). When it's done, **restart Claude Code** to load the new skill/hooks.
+
+<details><summary>Manual install (if you'd rather not use the installer)</summary>
+
+```bash
+# 1) skill (includes scripts/ and vendor/ — vendor has a copy of handoff for auto-install)
 cp -r SKILL.md SETUP.md scripts vendor  ~/.claude/skills/handoff-guard/
-# 1b) ensure handoff is installed (copies from vendored if missing)
+# 2) make sure the handoff skill is installed (copies from the vendored copy if missing)
 node ~/.claude/skills/handoff-guard/scripts/ensure-handoff.mjs
-# 2) hooks
+# 3) hooks
 cp hooks/context-guard.mjs hooks/session-resume.mjs  ~/.claude/hooks/
-# 3) add the hooks to ~/.claude/settings.json (see settings.example.json — adjust paths for your machine)
-# 4) (optional) slash command /handoff-guard-max — set your own MAX ceiling without touching env vars
+# 4) add the hooks to ~/.claude/settings.json (see settings.example.json — adjust paths for your machine)
+# 5) (optional) the /handoff-guard-max command for setting your own ceiling
 cp commands/handoff-guard-max.md  ~/.claude/commands/
 ```
 
-Requires `node` on PATH (hooks are written in Node = cross-platform, no dependency on jq/bash)
-
-**The `command` in settings.json** must be an absolute path:
+Paths in `settings.json` must be absolute:
 - Windows: `node "C:/Users/<you>/.claude/hooks/context-guard.mjs"`
 - macOS/Linux: `node "$HOME/.claude/hooks/context-guard.mjs"`
+</details>
 
 ## Verify
 
 ```bash
-node ~/.claude/skills/handoff-guard/scripts/selftest.mjs   # must be ALL PASS (21 cases)
+node ~/.claude/skills/handoff-guard/scripts/selftest.mjs   # should print ALL PASS (32 cases)
 ```
-Covers: absolute tier (regression) + predict (steady growth → fires before 218k) + cold-start + spike-dampening + compaction
-Live test: temporarily set `HANDOFF_GUARD_THRESHOLD=1` → say any one sentence → Claude should get "blocked" and immediately bounce to skill `handoff-guard` → then restore to 218000 + delete stale markers in `~/.claude/.handoff-guard/` (`*.{p,t1,t2}` + `*.state.json`)
+
+To try the real thing: temporarily set `HANDOFF_GUARD_THRESHOLD=1` and type any sentence — Claude should get stopped and bounce straight to the hand-off flow. When you're done, `unset HANDOFF_GUARD_THRESHOLD` (back to auto) and delete the marker files in `~/.claude/.handoff-guard/` (`*.p`, `*.t1`, `*.t2`, `*.state.json`).
 
 ## Tuning
 
-**Fastest way — run `/handoff-guard-max <max>`** (e.g. `/handoff-guard-max 200000`) to set your own ceiling instantly, no need to touch `settings.json`/env — it auto-computes tier1/tier2 (85%/94%), saves to `~/.claude/.handoff-guard/config.json`, and takes effect on the very next turn, no restart needed · `/handoff-guard-max reset` reverts to default
+You normally don't need to set anything — it adjusts the ceiling per model automatically. But if you want to override it:
 
-Or edit env vars directly (env vars always win over config.json — good for a one-off/testing override):
+**Easiest:** type `/handoff-guard-max 200000` in chat — sets the ceiling immediately, effective next turn, no restart (`/handoff-guard-max reset` goes back to auto).
+
+Or use env vars (env always wins — good for a one-off/testing override):
 
 | env | default | meaning |
-|-----|---------|----------|
-| `HANDOFF_GUARD_THRESHOLD` | 218000 | tier1 (absolute) — warn/evaluate · = 85% of the 256k ceiling |
-| `HANDOFF_GUARD_THRESHOLD2` | 240000 | tier2 (absolute) — urgent + the ETA target · = 94% of the 256k ceiling |
-| `HANDOFF_GUARD_MAX` | 256000 | context ceiling (display) — beyond this, context quality starts degrading |
-| `HANDOFF_GUARD_PREDICT_TURNS` | 3 | K — predict fires when it's predicted to be full within ≤ K turns |
-| `HANDOFF_GUARD_EMA_ALPHA` | 0.4 | EWMA weight (higher = reacts faster, lower = smoother) |
+|-----|---------|---------|
+| `HANDOFF_GUARD_MAX` | auto per model | context ceiling — Opus 256k, Sonnet/Haiku/unknown 200k |
+| `HANDOFF_GUARD_THRESHOLD` | 85% of the ceiling | the "nearly full" level |
+| `HANDOFF_GUARD_THRESHOLD2` | 94% of the ceiling | the "urgent" level |
+| `HANDOFF_GUARD_PREDICT_TURNS` | 3 | warn ahead when predicted to be full within ≤ this many turns |
+| `HANDOFF_GUARD_EMA_ALPHA` | 0.4 | how fast it reacts to the growth rate (higher = faster, lower = smoother) |
 
-> Priority for MAX/T1/T2: env var > `config.json` (set via `/handoff-guard-max`) > hardcoded default (256k) · to change the ceiling yourself: T1 = MAX×0.85, T2 = MAX×0.94
+Ceiling priority: **env > the value pinned with `/handoff-guard-max` > auto-detect per model > 200k (the safe fallback)**
 
-See full details in [SETUP.md](SETUP.md) · V2 design in [docs/V2-design.md](docs/V2-design.md)
+## Good to know / limitations
+
+- **If Claude Code auto-compacts before handoff-guard gets to warn you**, the guard stays silent (this can happen on lower-ceiling models like Sonnet) — fix it by lowering the ceiling, e.g. `/handoff-guard-max 150000`, so it warns earlier.
+- It's a **personal tool** tied to Claude Code's internal transcript format — if Claude Code changes that format down the road, this may need updating.
+- The ahead-of-time warning needs at least 2 turns to learn the growth rate first (if it spikes hard from the very start, the percentage levels take over instead).
+
+Full details in [SETUP.md](SETUP.md) · V2 design in [docs/V2-design.md](docs/V2-design.md)
+
+---
+
+The hand-off doc is produced by Matt Pocock's `handoff` skill ([mattpocock/skills](https://github.com/mattpocock/skills)) · `vendor/handoff/` is an offline copy bundled for installs without a network connection (© Matt Pocock).

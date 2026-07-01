@@ -2,22 +2,15 @@
 // ensure skill `handoff` (Matt Pocock — github.com/mattpocock/skills) ติดตั้งแล้ว
 // ถ้าไม่มี: (1) ดึงจาก source จริงผ่าน fetch  (2) ถ้าดึงไม่ได้ → fallback สำเนา vendored
 // หมายเหตุ: skill โหลดตอนเปิด session → ติดตั้งแล้วต้อง restart ถึง invoke ได้
+// ใช้ได้ 2 ทาง: (a) รันตรงจาก CLI  (b) import { ensureHandoff } แล้วเรียกจาก hook อื่น (เช่น session-resume.mjs)
 import { existsSync, mkdirSync, copyFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const RAW = 'https://raw.githubusercontent.com/mattpocock/skills/main/skills/productivity/handoff/SKILL.md';
-const target = join(homedir(), '.claude', 'skills', 'handoff');
-const targetSkill = join(target, 'SKILL.md');
 
-if (existsSync(targetSkill)) {
-  console.log('handoff: already installed ✅');
-  process.exit(0);
-}
-mkdirSync(target, { recursive: true });
-
-async function fromUpstream() {
+async function fromUpstream(targetSkill) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 8000);
   try {
@@ -31,22 +24,52 @@ async function fromUpstream() {
   }
 }
 
-function fromVendored() {
+function fromVendored(targetSkill) {
   const here = dirname(fileURLToPath(import.meta.url));
   const v = join(here, '..', 'vendor', 'handoff', 'SKILL.md');
   if (!existsSync(v)) throw new Error('ไม่พบ vendored ที่ ' + v);
   copyFileSync(v, targetSkill);
 }
 
-try {
-  await fromUpstream();
-  console.log('handoff: ติดตั้งจาก upstream (mattpocock/skills) → ' + target + ' · restart session เพื่อโหลด');
-} catch (e) {
+// คืนค่า { installed: boolean, source: 'already'|'upstream'|'vendored'|null, message: string }
+export async function ensureHandoff() {
+  const target = join(homedir(), '.claude', 'skills', 'handoff');
+  const targetSkill = join(target, 'SKILL.md');
+
+  if (existsSync(targetSkill)) {
+    return { installed: true, source: 'already', message: 'handoff: already installed ✅' };
+  }
+  mkdirSync(target, { recursive: true });
+
   try {
-    fromVendored();
-    console.log('handoff: upstream ไม่ได้ (' + e.message + ') → ใช้ vendored → ' + target + ' · restart session');
-  } catch (e2) {
-    console.error('handoff: ติดตั้งไม่สำเร็จ — ' + e2.message);
+    await fromUpstream(targetSkill);
+    return {
+      installed: true,
+      source: 'upstream',
+      message: 'handoff: ติดตั้งจาก upstream (mattpocock/skills) → ' + target + ' · restart session เพื่อโหลด',
+    };
+  } catch (e) {
+    try {
+      fromVendored(targetSkill);
+      return {
+        installed: true,
+        source: 'vendored',
+        message: 'handoff: upstream ไม่ได้ (' + e.message + ') → ใช้ vendored → ' + target + ' · restart session',
+      };
+    } catch (e2) {
+      return { installed: false, source: null, message: 'handoff: ติดตั้งไม่สำเร็จ — ' + e2.message };
+    }
+  }
+}
+
+// รันเฉพาะตอนเรียกตรงจาก CLI (ไม่รันตอนถูก import)
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) {
+  const result = await ensureHandoff();
+  if (result.installed) {
+    console.log(result.message);
+  } else {
+    console.error(result.message);
     process.exit(1);
   }
 }

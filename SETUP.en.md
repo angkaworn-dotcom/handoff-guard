@@ -8,7 +8,7 @@
 
 | File | Role |
 |------|------|
-| `~/.claude/hooks/context-guard.mjs` | **Stop hook** — L1 measures real tokens every turn + L2 EWMA growth → ETA · triggers (predict / ≥218k / ≥240k) → blocks and injects an instruction to invoke skill `handoff-guard` |
+| `~/.claude/hooks/context-guard.mjs` | **Stop hook** — L1 measures real tokens every turn + L2 EWMA growth → ETA · triggers (predict / ≥184k / ≥218k) → blocks and injects an instruction to invoke skill `handoff-guard` |
 | `~/.claude/hooks/session-resume.mjs` | **SessionStart hook** — finds a handoff file in the project/last-handoff → injects a pointer for the new session to read |
 | `~/.claude/skills/handoff-guard/SKILL.md` | **AI eval (L3+L4)** — decides whether to start a new session + does the handoff + verifies on resume |
 | `~/.claude/.handoff-guard/<session>.state.json` | **L2 state** — `{lastTokens, ema, turns}` per session (the hook reads/writes this itself, computing EWMA across turns) |
@@ -44,8 +44,8 @@ The Stop hook receives `transcript_path` via stdin → reads the JSONL → finds
 
 ## How predict works (L2)
 
-Every turn the hook computes `delta = tokens - lastTokens` → updates the **EWMA**: `ema = α·delta + (1-α)·ema` (α=0.4, weighted toward recent, resilient to spikes from reading large files) → `etaTurns = ceil((240k - tokens) / max(ema, 500))`
-**predict** fires when `etaTurns ≤ K(3)` & there are ≥2 observations & tokens haven't reached 218k yet → warns before things get critical (a negative `delta` = compaction → not counted, baseline reset)
+Every turn the hook computes `delta = tokens - lastTokens` → updates the **EWMA**: `ema = α·delta + (1-α)·ema` (α=0.4, weighted toward recent, resilient to spikes from reading large files) → `etaTurns = ceil((218k - tokens) / max(ema, 500))`
+**predict** fires when `etaTurns ≤ K(3)` & there are ≥2 observations & tokens haven't reached 184k yet → warns before things get critical (a negative `delta` = compaction → not counted, baseline reset)
 
 ## Verify
 
@@ -53,22 +53,22 @@ Every turn the hook computes `delta = tokens - lastTokens` → updates the **EWM
 ```
 node "C:/Users/Dell/.claude/skills/handoff-guard/scripts/selftest.mjs"
 ```
-Covers: absolute (217k doesn't block · 219k tier1 · 241k tier2 · repeat fires stay silent) + **predict** (steady growth → fires at ETA≤K before 218k · cold-start turns<2 doesn't fire · a single spike doesn't make the ETA jump · compaction with a negative delta doesn't break)
+Covers: absolute (183k doesn't block · 185k tier1 · 218k tier2 · repeat fires stay silent) + **predict** (steady growth → fires at ETA≤K before 184k · cold-start turns<2 doesn't fire · a single spike doesn't make the ETA jump · compaction with a negative delta doesn't break)
 
 **2. Live test** (proves that `decision:block` actually wakes Claude up in this version):
 - Temporarily set `HANDOFF_GUARD_THRESHOLD=1` (env, or edit the default) → say any one sentence → Claude should get "blocked" and immediately bounce to invoking `handoff-guard`
-- Once verified, restore to 218000 + delete the old markers: delete `~/.claude/.handoff-guard/*.{p,t1,t2}` + `*.state.json`
+- Once verified, restore to 184320 + delete the old markers: delete `~/.claude/.handoff-guard/*.{p,t1,t2}` + `*.state.json`
 
 ## Tune
 
 | Want | Do |
 |--------|----|
-| Change the context ceiling (MAX) quickly, without touching settings.json | Run `/handoff-guard-max <max>` (e.g. `/handoff-guard-max 200000`) — auto-computes T1/T2 (85%/94%), writes `~/.claude/.handoff-guard/config.json`, takes effect next turn · `/handoff-guard-max reset` reverts to 256000 · install this command once: `cp commands/handoff-guard-max.md ~/.claude/commands/` |
-| Warn (absolute) earlier/later (manual/override) | env `HANDOFF_GUARD_THRESHOLD` (default 218000 = 85%×256k), `HANDOFF_GUARD_THRESHOLD2` (240000 = 94%×256k) — env always wins over config.json |
-| Change the context ceiling (display) (manual/override) | env `HANDOFF_GUARD_MAX` (default 256000) — beyond this, context quality starts degrading · if you change the ceiling, adjust T1/T2 to match (85%/94%) |
+| Change the context ceiling (MAX) quickly, without touching settings.json | Run `/handoff-guard-max <max>` (e.g. `/handoff-guard-max 200000`) — auto-computes T1/T2 (72%/85%), writes `~/.claude/.handoff-guard/config.json`, takes effect next turn · `/handoff-guard-max reset` reverts to 256000 · install this command once: `cp commands/handoff-guard-max.md ~/.claude/commands/` |
+| Warn (absolute) earlier/later (manual/override) | env `HANDOFF_GUARD_THRESHOLD` (default 184320 = 72%×256k), `HANDOFF_GUARD_THRESHOLD2` (217600 = 85%×256k) — env always wins over config.json |
+| Change the context ceiling (display) (manual/override) | env `HANDOFF_GUARD_MAX` (default 256000) — beyond this, context quality starts degrading · if you change the ceiling, adjust T1/T2 to match (72%/85%) |
 | More/less predict lead time | env `HANDOFF_GUARD_PREDICT_TURNS` (K, default 3) — higher = warns earlier/softer, lower = waits until closer before warning |
 | More/less predict sensitivity to spikes | env `HANDOFF_GUARD_EMA_ALPHA` (default 0.4) — higher = reacts faster but jumpier with spikes, lower = smoother but laggier |
-| Auto-compact fires before 218k (warning doesn't arrive in time) | Lower the threshold (e.g. 200000) — observe from live use at what token count compaction actually happens |
+| Auto-compact fires before 184k (warning doesn't arrive in time) | Lower the threshold (e.g. 200000) — observe from live use at what token count compaction actually happens |
 | Reset a session's warning state | Delete markers `~/.claude/.handoff-guard/<session_id>.{p,t1,t2}` + `.state.json` (resets the EWMA) |
 
 ## Limitations (honest ones)

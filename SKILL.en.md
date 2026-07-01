@@ -4,21 +4,21 @@
 
 Protects work from being lost when context is nearly full — **predicts ahead of time** how many turns until it's full → uses judgment to decide "should this hand off to a new session?" and, if so, produces a clean handoff.
 
-> Formerly named **Handoff Guard** (reactive — waited until 218k to act) · V2 adds a time dimension (predictive), but the slug is still `handoff-guard` (invoke it by this name)
+> Formerly named **Handoff Guard** (reactive — waited until 184k to act) · V2 adds a time dimension (predictive), but the slug is still `handoff-guard` (invoke it by this name)
 
 ## 4 layers (Observe → Predict → Decide → Recover)
 | Layer | Responsibility | Lives in |
 |---|---|---|
 | **L1 Observe** | Read real tokens + delta/turn | `hooks/context-guard.mjs` (deterministic) |
-| **L2 Predict** | EWMA growth → ETA "how many turns until 240k" | `hooks/context-guard.mjs` (deterministic) |
+| **L2 Predict** | EWMA growth → ETA "how many turns until 218k" | `hooks/context-guard.mjs` (deterministic) |
 | **L3 Decide** | Finish step vs. hand off (based on which tier fired) | **this skill** (AI) |
 | **L4 Recover** | resume → verify → continue | `session-resume.mjs` + this skill (verify checklist) |
 
 ## When this gets invoked
 - The `context-guard` Stop hook fires one of the following → injects an instruction to invoke this skill (additionalContext attaches `tier/tokens/rate/etaTurns`):
-  - **predict** — predicted to hit 240k within ≤ K (3) turns (tokens haven't reached 218k yet — plenty of buffer)
-  - **tier1** — real tokens ≥ 218k (absolute safety net)
-  - **tier2** — real tokens ≥ 240k (urgent)
+  - **predict** — predicted to hit 218k within ≤ K (3) turns (tokens haven't reached 184k yet — plenty of buffer)
+  - **tier1** — real tokens ≥ 184k (absolute safety net)
+  - **tier2** — real tokens ≥ 218k (urgent)
 - The user types `/handoff-guard` themselves
 
 ## Steps (follow in order)
@@ -33,9 +33,9 @@ Protects work from being lost when context is nearly full — **predicts ahead o
 
 | Signal | Decision |
 |--------|--------|
-| **predict** (tokens < 218k, predicted to be full in ~etaTurns turns) | There's buffer — **it's fine to close out the current step properly** before handing off · **do not start a new feature/refactor** · if remaining work exceeds etaTurns → hand off after closing this step |
-| tier2 (≥240k) | **Hand off immediately** — little buffer left, at risk of compaction eating the work |
-| tier1 (≥218k) + in the middle of a large task with many steps left | Close out the current step safely → **hand off** |
+| **predict** (tokens < 184k, predicted to be full in ~etaTurns turns) | There's buffer — **it's fine to close out the current step properly** before handing off · **do not start a new feature/refactor** · if remaining work exceeds etaTurns → hand off after closing this step |
+| tier2 (≥218k) | **Hand off immediately** — little buffer left, at risk of compaction eating the work |
+| tier1 (≥184k) + in the middle of a large task with many steps left | Close out the current step safely → **hand off** |
 | tier1 + close to finishing in 1-2 short steps | Finish that step → **hand off immediately** (don't start anything new) |
 
 ### 3. If the decision is to hand off
@@ -69,7 +69,7 @@ The SessionStart hook injects a pointer to read the handoff doc — **read it, b
 
 ## Rationale (why this is more accurate than soft rules)
 - **observe + predict = deterministic** — the Stop hook reads real tokens from transcript usage every turn + computes EWMA growth → ETA as pure math (`~/.claude/hooks/context-guard.mjs`), not relying on the model to "remember on its own"
-- **predict before it's critical** — fires as soon as it's predicted to be full within ≤ K turns (before hitting 218k) → there's buffer to close out the step properly · the absolute tier (218k/240k) is still a fail-safe in case predict misses
+- **predict before it's critical** — fires as soon as it's predicted to be full within ≤ K turns (before hitting 184k) → there's buffer to close out the step properly · the absolute tier (184k/218k) is still a fail-safe in case predict misses
 - **the decision = AI** — this skill is more flexible than a hard cutoff (won't cut off in the middle of an atomic op)
 - **recovery = automatic + verified** — the SessionStart hook (`session-resume.mjs`) injects the handoff pointer for the new session → the skill runs a verify checklist (L4) before continuing
 - Tune via env `HANDOFF_GUARD_THRESHOLD` / `HANDOFF_GUARD_THRESHOLD2` / `HANDOFF_GUARD_PREDICT_TURNS` (K) / `HANDOFF_GUARD_EMA_ALPHA`

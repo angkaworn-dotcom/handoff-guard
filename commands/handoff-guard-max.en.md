@@ -35,4 +35,4 @@ Sets the context ceiling (`MAX`) that handoff-guard uses to warn/predict, instea
 
 - Once set, it takes effect **immediately on the next turn** — the hook (`context-guard.mjs`) reads `~/.claude/.handoff-guard/config.json` fresh every time it runs; no session restart needed
 - If env vars `HANDOFF_GUARD_MAX`/`HANDOFF_GUARD_THRESHOLD`/`HANDOFF_GUARD_THRESHOLD2` were ever set in `settings.json` — the env var **always wins** over what this command sets (it's meant for a temporary/testing override). If setting via `/handoff-guard-max` seems to have no effect, check whether a leftover env var is in the way
-- tier1/tier2 are auto-computed at 85%/94% of MAX unless all three values are specified explicitly (`node set-max.mjs <max> <t1> <t2>`)
+- tier1/tier2 are auto-computed at 72%/85% of MAX unless all three values are specified explicitly (`node set-max.mjs <max> <t1> <t2>`)

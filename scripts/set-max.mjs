@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // ตั้งเพดาน context (MAX) ของ handoff-guard เอง — เขียน ~/.claude/.handoff-guard/config.json
 // context-guard.mjs (Stop hook) จะอ่านไฟล์นี้ทุกเทิร์น (ไม่ต้อง restart session)
-// usage: node set-max.mjs <max>      -> ตั้ง MAX ใหม่, T1=85%, T2=94% (auto)
+// usage: node set-max.mjs <max>      -> ตั้ง MAX ใหม่, T1=72%, T2=85% (auto)
 //        node set-max.mjs <max> <t1> <t2>  -> ตั้งเองทั้ง 3 ค่า
 //        node set-max.mjs reset|default     -> ลบ config, กลับไปใช้ hardcoded default (256000)
 import { mkdirSync, existsSync, writeFileSync, unlinkSync } from 'node:fs';
@@ -31,8 +31,8 @@ const max = Number(process.argv[2]);
 if (!Number.isFinite(max) || !Number.isInteger(max)) fail(`"${process.argv[2]}" ไม่ใช่จำนวนเต็ม — ใส่ token count เช่น 200000`);
 if (max < MIN_MAX || max > MAX_MAX) fail(`MAX ต้องอยู่ระหว่าง ${MIN_MAX} ถึง ${MAX_MAX} (ได้ ${max})`);
 
-let t1 = process.argv[3] !== undefined ? Number(process.argv[3]) : Math.round(max * 0.85);
-let t2 = process.argv[4] !== undefined ? Number(process.argv[4]) : Math.round(max * 0.94);
+let t1 = process.argv[3] !== undefined ? Number(process.argv[3]) : Math.round(max * 0.72);
+let t2 = process.argv[4] !== undefined ? Number(process.argv[4]) : Math.round(max * 0.85);
 
 if (!Number.isFinite(t1) || !Number.isFinite(t2)) fail('t1/t2 ที่ใส่เองต้องเป็นตัวเลข');
 if (t1 <= 0 || t2 <= 0) fail('t1/t2 ต้องเป็นค่าบวก');

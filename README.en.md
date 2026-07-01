@@ -18,8 +18,8 @@ Every time Claude finishes a reply, the hook does four things:
 There are three warning levels:
 
 - 🟡 **Ahead of time** — predicted to fill up in a few turns (still time to wrap up cleanly)
-- ⚠️ **Nearly full** — reached 85% of the ceiling
-- 🔴 **Urgent** — reached 94% of the ceiling
+- ⚠️ **Nearly full** — reached 72% of the ceiling
+- 🔴 **Urgent** — reached 85% of the ceiling
 
 It figures out each model's ceiling on its own (Opus 256k, Sonnet/Haiku 200k), and if a session gets compacted and then grows back toward full again, it will warn a second time.
 
@@ -79,8 +79,8 @@ Or use env vars (env always wins — good for a one-off/testing override):
 | env | default | meaning |
 |-----|---------|---------|
 | `HANDOFF_GUARD_MAX` | auto per model | context ceiling — Opus 256k, Sonnet/Haiku/unknown 200k |
-| `HANDOFF_GUARD_THRESHOLD` | 85% of the ceiling | the "nearly full" level |
-| `HANDOFF_GUARD_THRESHOLD2` | 94% of the ceiling | the "urgent" level |
+| `HANDOFF_GUARD_THRESHOLD` | 72% of the ceiling | the "nearly full" level |
+| `HANDOFF_GUARD_THRESHOLD2` | 85% of the ceiling | the "urgent" level |
 | `HANDOFF_GUARD_PREDICT_TURNS` | 3 | warn ahead when predicted to be full within ≤ this many turns |
 | `HANDOFF_GUARD_EMA_ALPHA` | 0.4 | how fast it reacts to the growth rate (higher = faster, lower = smoother) |
 

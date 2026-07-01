@@ -1,6 +1,6 @@
 ---
 name: handoff-guard
-description: Context Manager (V2) — observe→predict→decide→recover. Decide whether to hand off to a fresh session when context is near (or predicted to reach) the token limit, and produce a clean handoff if so. Use when the context-guard Stop hook injects a near-limit OR predictive warning, when the user invokes /handoff-guard, or when context usage is high/rising fast (~218k+/256k, or predicted to hit the limit within a few turns) and you must decide whether to keep working or start a new session.
+description: Context Manager (V2) — observe→predict→decide→recover. Decide whether to hand off to a fresh session when context is near (or predicted to reach) the token limit, and produce a clean handoff if so. Use when the context-guard Stop hook injects a near-limit OR predictive warning, when the user invokes /handoff-guard, or when context usage is high/rising fast (~184k+/256k, or predicted to hit the limit within a few turns) and you must decide whether to keep working or start a new session.
 ---
 
 # Context Manager (V2)
@@ -9,18 +9,18 @@ description: Context Manager (V2) — observe→predict→decide→recover. Deci
 
 ปกป้องงานไม่ให้เสียตอน context ใกล้เต็ม — **ทำนายล่วงหน้า**ว่าอีกกี่เทิร์นจะเต็ม → ประเมินด้วยวิจารณญาณว่า "ควรขึ้น session ใหม่ไหม" แล้วทำ handoff ให้สะอาดถ้าควร
 
-> เดิมชื่อ **Handoff Guard** (reactive — รอถึง 218k ค่อยทำ) · V2 เพิ่มมิติเวลา (predictive) แต่ slug ยังเป็น `handoff-guard` (invoke ด้วยชื่อนี้)
+> เดิมชื่อ **Handoff Guard** (reactive — รอถึง 184k ค่อยทำ) · V2 เพิ่มมิติเวลา (predictive) แต่ slug ยังเป็น `handoff-guard` (invoke ด้วยชื่อนี้)
 
 ## 4 ชั้น (Observe → Predict → Decide → Recover)
 | Layer | หน้าที่ | อยู่ที่ |
 |---|---|---|
 | **L1 Observe** | อ่าน token จริง + delta/เทิร์น | `hooks/context-guard.mjs` (deterministic) |
-| **L2 Predict** | EWMA growth → ETA "อีกกี่เทิร์นถึง 240k" | `hooks/context-guard.mjs` (deterministic) |
+| **L2 Predict** | EWMA growth → ETA "อีกกี่เทิร์นถึง 218k" | `hooks/context-guard.mjs` (deterministic) |
 | **L3 Decide** | finish step vs handoff (ดู tier ที่ทริก) | **skill นี้** (AI) |
 | **L4 Recover** | resume → verify → continue | `session-resume.mjs` + skill นี้ (verify checklist) |
 
 ## เมื่อไหร่ถูกเรียก
-> T1/T2 = `round(MAX×0.85)` / `round(MAX×0.94)` · MAX **auto-detect ตามโมเดล** (opus 256k → T1≈218k/T2≈241k · sonnet/haiku 200k → T1=170k/T2=188k) หรือ pin เองด้วย `/handoff-guard-max`
+> T1/T2 = `round(MAX×0.72)` / `round(MAX×0.85)` · MAX **auto-detect ตามโมเดล** (opus 256k → T1≈184k/T2≈218k · sonnet/haiku 200k → T1=144k/T2=170k) หรือ pin เองด้วย `/handoff-guard-max`
 
 - Stop hook `context-guard` ทริกอย่างใดอย่างหนึ่ง → ฉีด instruction มาให้ invoke skill นี้ (additionalContext แนบ `tier/tokens/rate/etaTurns`):
   - **predict** — คาดว่าอีก ≤ K (3) เทิร์นจะแตะ T2 (token ยังไม่ถึง T1 — buffer เยอะ)
@@ -40,9 +40,9 @@ description: Context Manager (V2) — observe→predict→decide→recover. Deci
 
 | สัญญาณ | ตัดสิน |
 |--------|--------|
-| **predict** (token < 218k, คาดอีก ~etaTurns เทิร์นจะเต็ม) | มี buffer — **ปิด step ปัจจุบันให้จบสวยๆ ได้** แล้วค่อย handoff · **ห้ามเริ่ม feature/refactor ใหม่** · ถ้างานเหลือยาวเกิน etaTurns → handoff หลังปิด step นี้ |
-| tier2 (≥240k) | **handoff ทันที** — buffer น้อย เสี่ยง compaction กินงาน |
-| tier1 (≥218k) + อยู่กลาง task ใหญ่ ยังเหลือหลาย step | ปิด step ปัจจุบันให้ปลอดภัย → **handoff** |
+| **predict** (token < 184k, คาดอีก ~etaTurns เทิร์นจะเต็ม) | มี buffer — **ปิด step ปัจจุบันให้จบสวยๆ ได้** แล้วค่อย handoff · **ห้ามเริ่ม feature/refactor ใหม่** · ถ้างานเหลือยาวเกิน etaTurns → handoff หลังปิด step นี้ |
+| tier2 (≥218k) | **handoff ทันที** — buffer น้อย เสี่ยง compaction กินงาน |
+| tier1 (≥184k) + อยู่กลาง task ใหญ่ ยังเหลือหลาย step | ปิด step ปัจจุบันให้ปลอดภัย → **handoff** |
 | tier1 + งานใกล้จบใน 1-2 step สั้น | ทำต่อให้จบ step นั้น → **handoff ทันที** (อย่าเริ่มงานใหญ่ใหม่) |
 
 ### 3. ถ้าตัดสินว่า handoff

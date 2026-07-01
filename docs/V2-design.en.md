@@ -2,7 +2,7 @@
 
 > [ภาษาไทย](V2-design.md)
 
-> Upgrades `handoff-guard` from **reactive** (wait until 218k, then act) to **predictive** (predict that it'll hit the danger zone in ~N turns → prepare the handoff starting now), while keeping the entire original mechanism as a **safety net**
+> Upgrades `handoff-guard` from **reactive** (wait until 184k, then act) to **predictive** (predict that it'll hit the danger zone in ~N turns → prepare the handoff starting now), while keeping the entire original mechanism as a **safety net**
 >
 > The slug is still `handoff-guard` (do not touch `/handoff-guard`, the hook injection text, settings.json, or the marker dir) — only the title + description are retitled to "Context Manager (V2)"
 
@@ -69,8 +69,8 @@ turnsToT2 = Math.ceil((T2 - tokens) / rate)   // how many turns until T2 is reac
 
 ### 3.4 Trigger — priority high→low (fires the first condition that matches)
 ```
-1. tokens ≥ T2 (240k) & !marker.t2   → fire "tier2"   (urgent — original)
-2. tokens ≥ T1 (218k) & !marker.t1   → fire "tier1"   (original)
+1. tokens ≥ T2 (218k) & !marker.t2   → fire "tier2"   (urgent — original)
+2. tokens ≥ T1 (184k) & !marker.t1   → fire "tier1"   (original)
 3. turnsToT2 ≤ K (3) & state.turns ≥ 2 & tokens < T1 & !marker.p
                                      → fire "predict"  (new)
 ```
@@ -88,7 +88,7 @@ rate: <ema, tokens/turn>
 etaTurns: <turnsToT2>
 ```
 Example predict message:
-> 🟡 Forecast: context ~216k, growing ~8k/turn on average → will reach 240k in ~3 turns. Close out the current step, then invoke skill "handoff-guard" to prepare a handoff. Don't start anything new.
+> 🟡 Forecast: context ~183k, growing ~11.6k/turn on average → will reach 218k in ~3 turns. Close out the current step, then invoke skill "handoff-guard" to prepare a handoff. Don't start anything new.
 
 ## 4. L3 — Changes in `SKILL.md` (decision table)
 
@@ -96,9 +96,9 @@ Adds a row to the "evaluate: hand off now vs. keep going" table:
 
 | Signal | Decision |
 |---|---|
-| **predict tier (tokens haven't reached 218k yet, plenty of buffer)** | **It's fine to close out the current step properly** before handing off · don't start a new feature/refactor |
-| tier1 (≥218k) ... | (unchanged) |
-| tier2 (≥240k) ... | (unchanged) |
+| **predict tier (tokens haven't reached 184k yet, plenty of buffer)** | **It's fine to close out the current step properly** before handing off · don't start a new feature/refactor |
+| tier1 (≥184k) ... | (unchanged) |
+| tier2 (≥218k) ... | (unchanged) |
 
 Added principle: predict = more buffer than the absolute tiers → decide without urgency, but still don't start anything big · read `tier/etaTurns` from additionalContext to gauge urgency
 
@@ -118,13 +118,13 @@ If verify doesn't match (e.g. the handoff says it was committed but git still sh
 
 | env | default | meaning |
 |---|---|---|
-| `HANDOFF_GUARD_THRESHOLD` | 218000 | T1 (absolute tier1) = 85% of the 256k ceiling |
-| `HANDOFF_GUARD_THRESHOLD2` | 240000 | T2 (absolute tier2 + the ETA target) = 94% of the 256k ceiling |
+| `HANDOFF_GUARD_THRESHOLD` | 184320 | T1 (absolute tier1) = 72% of the 256k ceiling |
+| `HANDOFF_GUARD_THRESHOLD2` | 217600 | T2 (absolute tier2 + the ETA target) = 85% of the 256k ceiling |
 | `HANDOFF_GUARD_MAX` | 256000 | context ceiling (display only) — beyond this, context quality starts degrading |
 | `HANDOFF_GUARD_PREDICT_TURNS` | 3 | K — lead time (turns) for the predict trigger |
 | `HANDOFF_GUARD_EMA_ALPHA` | 0.4 | EWMA weight |
 
-> **256k ceiling** — T1/T2 are set at 85%/94% of the ceiling (previously based on 200k = 170k/188k) · if the ceiling changes in the future, compute T1=ceil(MAX×0.85), T2=ceil(MAX×0.94)
+> **256k ceiling** — T1/T2 are set at 72%/85% of the ceiling (previously based on 200k = 144k/170k) · if the ceiling changes in the future, compute T1=ceil(MAX×0.72), T2=ceil(MAX×0.85)
 
 ## 7. Affected files
 
@@ -140,9 +140,9 @@ If verify doesn't match (e.g. the handoff says it was committed but git still sh
 ## 8. Test plan
 
 `node selftest.mjs` adds these cases (deterministic, no need to wait for a session to grow):
-1. Steady growth of 8k/turn from 200k → predict fires at ETA ≤ 3 (≈216k), before reaching 218k
+1. Steady growth of ~11.6k/turn → predict fires at ETA ≤ 3 (≈183k), before reaching T1=184320
 2. cold-start (turns=1) → predict doesn't fire (ema hasn't settled yet)
 3. A single-turn spike of +40k, then it settles back down → the EWMA doesn't cause the ETA to jump into a false fire
 4. Compaction (tokens drop from 180k → 90k) → the negative delta isn't counted, no crash, baseline resets
-5. Original absolute tiers: 217k doesn't fire / 219k fires tier1 / 241k fires tier2 (regression — must still pass)
+5. Original absolute tiers: 183k doesn't fire / 185k fires tier1 / 218k fires tier2 (regression — must still pass)
 6. Marker prevents repeat fires: once predict fires, the same session stays silent afterward

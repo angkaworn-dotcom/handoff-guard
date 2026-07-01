@@ -33,4 +33,4 @@ allowed-tools: ["Bash"]
 
 - ตั้งค่าแล้วมีผล **เทิร์นถัดไปทันที** — hook (`context-guard.mjs`) อ่าน `~/.claude/.handoff-guard/config.json` สดทุกครั้งที่ทำงาน ไม่ต้อง restart session
 - ถ้าเคยตั้ง env var `HANDOFF_GUARD_MAX`/`HANDOFF_GUARD_THRESHOLD`/`HANDOFF_GUARD_THRESHOLD2` ไว้ใน `settings.json` — env var จะ**ชนะ**ค่าที่ตั้งผ่านคำสั่งนี้เสมอ (ไว้สำหรับ override ชั่วคราว/testing) ถ้าตั้งผ่าน `/handoff-guard-max` แล้วดูเหมือนไม่มีผล ให้เช็คว่ามี env var ค้างอยู่หรือไม่
-- tier1/tier2 คำนวณอัตโนมัติที่ 85%/94% ของ MAX เว้นแต่ระบุเองครบ 3 ค่า (`node set-max.mjs <max> <t1> <t2>`)
+- tier1/tier2 คำนวณอัตโนมัติที่ 72%/85% ของ MAX เว้นแต่ระบุเองครบ 3 ค่า (`node set-max.mjs <max> <t1> <t2>`)

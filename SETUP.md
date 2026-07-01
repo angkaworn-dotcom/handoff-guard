@@ -1,5 +1,7 @@
 # Context Manager (V2) — Setup / Verify / Tune
 
+> [English](SETUP.en.md)
+
 > slug ยังเป็น `handoff-guard` · ดีไซน์เต็มดู [docs/V2-design.md](docs/V2-design.md)
 
 ## องค์ประกอบ (3 ส่วน + 1 state)

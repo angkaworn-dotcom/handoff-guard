@@ -6,6 +6,8 @@ allowed-tools: ["Bash"]
 
 # /handoff-guard-max
 
+> [English reference translation](handoff-guard-max.en.md) (this file is the one Claude Code actually loads as the command)
+
 ตั้งเพดาน context (`MAX`) ที่ handoff-guard ใช้เตือน/predict เอง แทนการแก้ env var มือใน `settings.json`
 
 ## Argument

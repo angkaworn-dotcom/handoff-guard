@@ -5,6 +5,8 @@ description: Context Manager (V2) — observe→predict→decide→recover. Deci
 
 # Context Manager (V2)
 
+> [English reference translation](SKILL.en.md) (this `SKILL.md` is the functional file Claude Code loads — the English copy is documentation only)
+
 ปกป้องงานไม่ให้เสียตอน context ใกล้เต็ม — **ทำนายล่วงหน้า**ว่าอีกกี่เทิร์นจะเต็ม → ประเมินด้วยวิจารณญาณว่า "ควรขึ้น session ใหม่ไหม" แล้วทำ handoff ให้สะอาดถ้าควร
 
 > เดิมชื่อ **Handoff Guard** (reactive — รอถึง 218k ค่อยทำ) · V2 เพิ่มมิติเวลา (predictive) แต่ slug ยังเป็น `handoff-guard` (invoke ด้วยชื่อนี้)

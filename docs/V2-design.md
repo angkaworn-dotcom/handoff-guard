@@ -1,5 +1,7 @@
 # Context Manager (V2) — Design Spec
 
+> [English](V2-design.en.md)
+
 > อัปเกรด `handoff-guard` จาก **reactive** (รอถึง 218k ค่อยทำ) เป็น **predictive** (คาดว่าอีก ~N เทิร์นจะแตะเขตอันตราย → เตรียม handoff ตั้งแต่ตอนนี้) โดยคงกลไกเดิมทั้งหมดเป็น **safety net**
 >
 > Slug ยังเป็น `handoff-guard` (ไม่แตะ `/handoff-guard`, hook injection text, settings.json, marker dir) — retitle หัวเรื่อง+description เป็น "Context Manager (V2)" เท่านั้น

@@ -1,5 +1,7 @@
 # handoff-guard — Context Manager (V2)
 
+> [English](README.en.md)
+
 Claude Code skill + hooks ที่ทำให้ **handoff ตอน context ใกล้เต็มแม่นยำ** — แทนที่จะพึ่งกฎนุ่มๆ ใน CLAUDE.md/memory (ที่ model มักลืม/ปล่อยจนเต็ม 256k) ใช้ **Stop hook อ่าน token จริงทุกเทิร์น** เป็นตัว trigger + **AI ประเมิน**ว่าควรขึ้น session ใหม่ไหม + **chip/handoff doc** ให้ต่อสะดวก
 
 > **V2 = predictive** เพิ่ม "มิติเวลา" — ไม่ใช่แค่รอ token ถึง 218k แต่ติดตามอัตราโตของ context ข้ามเทิร์น (EWMA) → **ทำนายว่าอีกกี่เทิร์นจะเต็ม** → เตือนล่วงหน้าตั้งแต่ยังไม่วิกฤต โดยคง threshold เดิมเป็น safety net · slug ยังเป็น `handoff-guard` (invoke ด้วยชื่อนี้)

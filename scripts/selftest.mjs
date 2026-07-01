@@ -119,10 +119,22 @@ check('G opus 219k → tier1 block (≥217600)', gO && gO.decision === 'block' &
 const gU = parse(run('hg-unk', 171000, 'weird-model-x'));
 check('G unknown model 171k → tier1 (fallback 200k)', gU && gU.decision === 'block' && /tier=tier1/.test(ctxOf(gU)));
 
+// ── H. re-arm after compaction (regression — post-compact blind spot) ─────────
+// bug: marker .t1/.t2/.p ยิงครั้งเดียว/session แล้วไม่รีเซ็ต → พอ compact แล้วโตทะลุ T1 อีก = เงียบ
+console.log('\n[H] re-arm after compaction');
+run('hg-rearm', 160000);                                  // baseline (< T1), silent
+const h1 = parse(run('hg-rearm', 219000));                // tier1 fires (marker .t1 สร้าง)
+check('H 219k → tier1 fires (ครั้งแรก)', h1 && /tier=tier1/.test(ctxOf(h1)));
+check('H 220k same session → silent (marker กันซ้ำ ก่อน compact)', run('hg-rearm', 220000) === '');
+check('H compaction 100k → silent + re-arm', run('hg-rearm', 100000) === '');
+const h2 = parse(run('hg-rearm', 219000));                // ต้องยิงซ้ำได้ หลัง re-arm
+check('H 219k หลัง compact → tier1 ยิงซ้ำ (re-armed) ✅', h2 && h2.decision === 'block' && /tier=tier1/.test(ctxOf(h2)));
+
 // ── cleanup ──────────────────────────────────────────────────────────────────
 const sessions = ['hg-test-a', 'hg-test-b', 'hg-test-c', 'hg-test-d',
                   'hg-predict', 'hg-cold', 'hg-spike', 'hg-comp',
-                  'hg-son-a', 'hg-son-b', 'hg-son-c', 'hg-op-a', 'hg-op-b', 'hg-unk'];
+                  'hg-son-a', 'hg-son-b', 'hg-son-c', 'hg-op-a', 'hg-op-b', 'hg-unk',
+                  'hg-rearm'];
 for (const s of sessions) {
   for (const ext of ['t1', 't2', 'p', 'state.json']) {
     const m = join(markerDir, `${s}.${ext}`);

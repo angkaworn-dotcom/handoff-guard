@@ -5,7 +5,7 @@
 // → block ไม่ให้ Claude หยุด + ฉีด instruction ให้ invoke skill "handoff-guard"
 //   เมื่อ (predict) คาดว่าใกล้เต็ม หรือ (absolute) token ทะลุ threshold เดิม (safety net)
 // กัน loop ด้วย marker ต่อ session ต่อ tier (.p / .t1 / .t2)
-import { readFileSync, mkdirSync, existsSync, writeFileSync } from 'node:fs';
+import { readFileSync, mkdirSync, existsSync, writeFileSync, rmSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -80,6 +80,9 @@ function main() {
     const delta = tokens - state.lastTokens;
     if (delta < 0) {
       // compaction/รีเซ็ตเกิดขึ้น → ไม่นับ delta ลบ, คง ema เดิม, reset baseline
+      // + re-arm: ลบ marker ที่เคยยิง เพื่อให้เตือนใหม่ได้ถ้า context โตทะลุ T1/T2 อีกรอบหลัง compact
+      // (session ที่ compact แล้วโตอีก = degrade แล้ว ยิ่งต้อง hand off — ไม่งั้นเงียบถาวร)
+      try { rmSync(m1); rmSync(m2); rmSync(mp); } catch { /* marker อาจยังไม่เคยสร้าง */ }
     } else if (!state.ema) {
       state.ema = delta;            // delta จริงตัวแรก
     } else {

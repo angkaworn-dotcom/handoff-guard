@@ -20,7 +20,7 @@ description: Context Manager (V2) — observe→predict→decide→recover. Deci
 | **L4 Recover** | resume → verify → continue | `session-resume.mjs` + skill นี้ (verify checklist) |
 
 ## เมื่อไหร่ถูกเรียก
-> T1/T2 = `round(MAX×0.72)` / `round(MAX×0.85)` · MAX **auto-detect ตามโมเดล** (fable/mythos 512k → T1≈369k/T2≈435k · opus 256k → T1≈184k/T2≈218k · sonnet/haiku 200k → T1=144k/T2=170k · `[1m]` 1M) หรือ pin เองด้วย `/handoff-guard-max`
+> T1/T2 = `round(MAX×0.72)` / `round(MAX×0.85)` · MAX **auto-detect ตามโมเดล** (fable/mythos 512k → T1≈369k/T2≈435k · opus 256k → T1≈184k/T2≈218k · sonnet/haiku 200k → T1=144k/T2=170k · `[1m]` 1M) หรือ pin เองด้วย `/handoff-guard-max` (`0` = ปิด guard สนิท)
 
 - Stop hook `context-guard` ทริกอย่างใดอย่างหนึ่ง → ฉีด instruction มาให้ invoke skill นี้ (additionalContext แนบ `tier/tokens/rate/etaTurns`):
   - **predict** — คาดว่าอีก ≤ K (3) เทิร์นจะแตะ T2 (token ยังไม่ถึง T1 — buffer เยอะ)

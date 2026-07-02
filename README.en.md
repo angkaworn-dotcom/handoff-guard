@@ -63,7 +63,7 @@ Paths in `settings.json` must be absolute:
 ## Verify
 
 ```bash
-node ~/.claude/skills/handoff-guard/scripts/selftest.mjs   # should print ALL PASS (36 cases)
+node ~/.claude/skills/handoff-guard/scripts/selftest.mjs   # should print ALL PASS (38 cases)
 ```
 
 To try the real thing: temporarily set `HANDOFF_GUARD_THRESHOLD=1` and type any sentence — Claude should get stopped and bounce straight to the hand-off flow. When you're done, `unset HANDOFF_GUARD_THRESHOLD` (back to auto) and delete the marker files in `~/.claude/.handoff-guard/` (`*.p`, `*.t1`, `*.t2`, `*.state.json`).
@@ -72,13 +72,20 @@ To try the real thing: temporarily set `HANDOFF_GUARD_THRESHOLD=1` and type any 
 
 You normally don't need to set anything — it adjusts the ceiling per model automatically. But if you want to override it:
 
-**Easiest:** type `/handoff-guard-max 200000` in chat — sets the ceiling immediately, effective next turn, no restart (`/handoff-guard-max reset` goes back to auto).
+**Easiest:** type `/handoff-guard-max <number>` in chat — sets the ceiling immediately, effective next turn, no restart. **Set it to match how you actually work:**
+
+| How you work | What to set |
+|---|---|
+| Switch between models / don't want to think about it | `/handoff-guard-max reset` → let it auto-detect per model **(recommended)** |
+| Mostly stay on one model | pin it to that model's window — Opus `256000` · Fable/Mythos `512000` · Sonnet/Haiku `200000` |
+| Want earlier/more frequent warnings | pin lower, e.g. `/handoff-guard-max 150000` |
+| Want to silence it (let Claude Code auto-compact on its own) | `/handoff-guard-max 0` — fully off, never warns/blocks · turn back on with `/handoff-guard-max reset` |
 
 Or use env vars (env always wins — good for a one-off/testing override):
 
 | env | default | meaning |
 |-----|---------|---------|
-| `HANDOFF_GUARD_MAX` | auto per model | context ceiling — Fable/Mythos 512k, Opus 256k, Sonnet/Haiku/unknown 200k, `[1m]` 1M |
+| `HANDOFF_GUARD_MAX` | auto per model | context ceiling — Fable/Mythos 512k, Opus 256k, Sonnet/Haiku/unknown 200k, `[1m]` 1M · **`0` = turn guard off** |
 | `HANDOFF_GUARD_THRESHOLD` | 72% of the ceiling | the "nearly full" level |
 | `HANDOFF_GUARD_THRESHOLD2` | 85% of the ceiling | the "urgent" level |
 | `HANDOFF_GUARD_PREDICT_TURNS` | 3 | warn ahead when predicted to be full within ≤ this many turns |

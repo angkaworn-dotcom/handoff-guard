@@ -17,6 +17,14 @@ try {
   fileConfig = JSON.parse(readFileSync(join(homedir(), '.claude', '.handoff-guard', 'config.json'), 'utf8'));
 } catch { fileConfig = {}; }
 
+// kill switch: MAX=0 = ปิด guard ทั้งตัว (ไม่อ่าน transcript ไม่เตือน ไม่ block)
+// ตั้งด้วย `/handoff-guard-max 0` (เขียน config.json {max:0}) หรือ env HANDOFF_GUARD_MAX=0 (ชั่วคราว)
+// เปิดคืน: /handoff-guard-max reset (auto) หรือ /handoff-guard-max <n> (pin ค่าใหม่)
+{
+  const pinned = process.env.HANDOFF_GUARD_MAX ?? fileConfig.max;   // undefined = ไม่ได้ตั้ง → ไม่ใช่ kill switch
+  if (pinned !== undefined && pinned !== '' && Number(pinned) === 0) process.exit(0);
+}
+
 // เพดาน context ต่อโมเดล — auto-detect ต่อเทิร์นจาก message.model (transcript บันทึกให้ + เปลี่ยนกลางเซสชันได้)
 // "[1m]" (long-context 1M) > fable/mythos 512k > opus 256k > sonnet/haiku/ไม่รู้จัก 200k
 // fable/mythos: window จริงใหญ่มาก (spec 1M — สังเกตจริงโตทะลุ 400k โดยยังไม่ auto-compact) →

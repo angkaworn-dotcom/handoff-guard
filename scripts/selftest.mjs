@@ -3,7 +3,7 @@
 // สร้าง transcript ปลอมที่มี usage ตามต้องการ แล้วยิง hook ดูว่า block ถูก tier ไหม + EWMA/predict + marker กันซ้ำ
 // state.json persist ข้าม run ใน session เดียว → ทดสอบ EWMA ข้ามเทิร์นได้ตรงๆ
 import { spawnSync } from 'node:child_process';
-import { writeFileSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -139,6 +139,19 @@ check('H 186k same session → silent (marker กันซ้ำ ก่อน co
 check('H compaction 100k → silent + re-arm', run('hg-rearm', 100000) === '');
 const h2 = parse(run('hg-rearm', 185000));                // ต้องยิงซ้ำได้ หลัง re-arm
 check('H 185k หลัง compact → tier1 ยิงซ้ำ (re-armed) ✅', h2 && h2.decision === 'block' && /tier=tier1/.test(ctxOf(h2)));
+
+// ── I. kill switch (MAX=0 = ปิด guard ทั้งตัว) ────────────────────────────────
+console.log('\n[I] kill switch (MAX=0)');
+// env HANDOFF_GUARD_MAX=0 → เงียบแม้ token สูงมาก (900k)
+const offEnv = spawnSync('node', [HOOK], {
+  input: JSON.stringify({ session_id: 'hg-off-env', transcript_path: makeTranscript(900000, 'claude-opus-4-8'), hook_event_name: 'Stop' }),
+  encoding: 'utf8', env: { ...cleanEnv, HANDOFF_GUARD_MAX: '0' },
+}).stdout.trim();
+check('I env MAX=0 → silent (ปิด) แม้ 900k', offEnv === '');
+// config.json {max:0} → เงียบเช่นกัน (เขียนท้ายสุดก่อน cleanup เพื่อไม่ให้ mask เทสต์อื่น)
+mkdirSync(markerDir, { recursive: true });
+writeFileSync(join(markerDir, 'config.json'), JSON.stringify({ max: 0 }));
+check('I config max=0 → silent (ปิด) แม้ 900k', run('hg-off-cfg', 900000, 'claude-opus-4-8') === '');
 
 // ── cleanup ──────────────────────────────────────────────────────────────────
 // marker/state ทั้งหมดอยู่ใน fakeHome → ลบทิ้งทั้งก้อน ไม่กระทบของจริง

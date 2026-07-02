@@ -14,16 +14,18 @@ Sets the context ceiling (`MAX`) that handoff-guard uses to warn/predict, instea
 
 ## Argument
 
-`$ARGUMENTS` = the maximum token count of the context window, e.g.:
-- `200000` — standard Claude (200k)
-- `256000` — handoff-guard's current default
-- `1000000` — long-context beta (1M)
-- `reset` or `default` — delete the config, revert to default (256000)
+`$ARGUMENTS` = the maximum token count of the context window, **set it to match how you actually work**, e.g.:
+- `200000` — Sonnet/Haiku (200k)
+- `256000` — Opus (256k)
+- `512000` — Fable/Mythos (large window, set high so it doesn't warn too early)
+- `1000000` — long-context beta / push Fable all the way to spec (1M)
+- `0` — **turn handoff-guard off** (never warns/blocks until you set it again)
+- `reset` or `default` — delete the config, revert to per-model auto-detect (recommended if you switch models a lot)
 
 ## Steps
 
-1. If `$ARGUMENTS` is empty → ask the user with AskUserQuestion what they want to set (offer 200000 / 256000 / 1000000 / reset as options) before running the script
-2. If `$ARGUMENTS` is not a number and not `reset`/`default` → tell the user the format is wrong, show a correct example, and stop (don't guess a value)
+1. If `$ARGUMENTS` is empty → ask the user with AskUserQuestion what they want to set (offer 256000 / 512000 / 1000000 / reset / 0 as options) before running the script
+2. If `$ARGUMENTS` is not a number and not `reset`/`default`/`0`/`off`/`disable` → tell the user the format is wrong, show a correct example, and stop (don't guess a value)
 3. Run the setter script (first confirm the real path with `ls ~/.claude/skills/handoff-guard/scripts/set-max.mjs` in case the user installed it elsewhere):
    ```bash
    node ~/.claude/skills/handoff-guard/scripts/set-max.mjs $ARGUMENTS

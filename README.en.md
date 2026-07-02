@@ -15,6 +15,13 @@ Every time Claude finishes a reply, the hook does four things:
 3. **Warn** — if it's nearly full (or predicted to fill up soon), stop Claude and tell it to hand off
 4. **Recover** — when a new session starts, a second hook points Claude at the hand-off doc before it begins
 
+## Two ways to continue in a new session
+
+- **Click the chip** (Claude Code apps with `spawn_task`) — after finishing the handoff, Claude creates a one-click "ต่อ N. &lt;task&gt;" button (the running number N tells you which chip is newest). The new session runs 3 steps on its own before starting work: **move the goods** (relocate `node_modules` from the old worktree so there's no fresh `npm install`) → **verify the code base** (HEAD must contain the old branch's tip commit; ff-merge if not) → **prune** (keep the 5 most recent old worktrees as snapshots, unregister the rest — **branches are never deleted**, every point stays recoverable via `git worktree add`)
+- **Type `/clear`** (works everywhere including the terminal CLI) — the per-project pointer routes the new session to the handoff doc, and it runs the verify checklist (git status / branch / validation gate) before continuing.
+
+Pointers are one file per worktree (keyed by the full path) — you can have several projects/worktrees open at once without handoffs cross-contaminating · pointers expire after 7 days, and Claude deletes them once the handoff's work is done.
+
 There are three warning levels:
 
 - 🟡 **Ahead of time** — predicted to fill up in a few turns (still time to wrap up cleanly)
@@ -99,6 +106,10 @@ Ceiling priority: **env > the value pinned with `/handoff-guard-max` > auto-dete
 - **Fable/Mythos are set to a 512k ceiling** (higher than the others) because their real context window is very large — the spec says 1M, and in practice a session was observed growing past 400k without Claude Code auto-compacting. Setting them to Opus's 256k would make the guard warn far too early while there's still a huge buffer left · to push it all the way to spec, use `/handoff-guard-max 1000000` (though it's not yet confirmed where Claude Code actually auto-compacts on a 1M window).
 - It's a **personal tool** tied to Claude Code's internal transcript format — if Claude Code changes that format down the road, this may need updating.
 - The ahead-of-time warning needs at least 2 turns to learn the growth rate first (if it spikes hard from the very start, the percentage levels take over instead).
+- **Chips only work on clients that have `spawn_task`** (the Claude Code desktop app) — on the terminal CLI use the `/clear` + pointer path instead; same functionality, just no button. Also note a chip **always creates a new git worktree** (there's no way to turn that off), which is why the move-the-goods + prune steps exist at all.
+- **The `node_modules` move never fires in repos that commit `node_modules` to git** — a fresh worktree materializes `node_modules` at checkout, so the "destination is empty" condition is never true (deliberately safe: `Move-Item` into an existing destination silently *nests* the folder inside) → the old worktree keeps its full `node_modules` until pruned/deleted manually.
+- **Prune can't delete a worktree that's still in use** — an old session that's still open (or a dev server still running) holds the cwd, so the file deletion fails (EBUSY). The script unregisters it from git and reports it as an "orphan folder" to delete manually after closing the session — it never forces or kills processes for you.
+- **The handoff summary shown at session start (`systemMessage`) renders only on the terminal CLI** — the desktop app/IDE extensions don't render it yet (as of 2026-07), and a hook can't trigger a turn by itself: the user has to send the first message before Claude starts reading the handoff.
 
 Full details in [SETUP.md](SETUP.md) · V2 design in [docs/V2-design.md](docs/V2-design.md)
 

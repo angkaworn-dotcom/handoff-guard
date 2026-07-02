@@ -9,11 +9,13 @@
 | ไฟล์ | บทบาท |
 |------|-------|
 | `~/.claude/hooks/context-guard.mjs` | **Stop hook** — L1 วัด token + โมเดลจริงทุกเทิร์น + L2 EWMA growth → ETA · เพดาน **auto-detect ตามโมเดล** (fable/mythos 512k · opus 256k · sonnet/haiku 200k · `[1m]` 1M) · ทริก (predict / ≥T1 / ≥T2) → block + ฉีดให้ invoke skill `handoff-guard` |
-| `~/.claude/hooks/session-resume.mjs` | **SessionStart hook** — เจอไฟล์ handoff ในโปรเจกต์/last-handoff → ฉีดตัวชี้ให้ session ใหม่อ่าน |
+| `~/.claude/hooks/session-resume.mjs` | **SessionStart hook** — เจอไฟล์ handoff ในโปรเจกต์/pointer per-project (`pointers/*.json`, หมดอายุ 7 วัน) → ฉีดตัวชี้ให้ session ใหม่อ่าน |
 | `~/.claude/skills/handoff-guard/SKILL.md` | **AI eval (L3+L4)** — ตัดสินว่าควรขึ้น session ใหม่ไหม + ทำ handoff + verify ตอน resume |
 | `~/.claude/.handoff-guard/<session>.state.json` | **L2 state** — `{lastTokens, ema, turns}` ต่อ session (hook เขียน/อ่านเอง คำนวณ EWMA ข้ามเทิร์น) |
 | `~/.claude/.handoff-guard/config.json` | **MAX/T1/T2 ที่ pin เอง** — เขียนโดย `scripts/set-max.mjs` (ผ่านคำสั่ง `/handoff-guard-max`), hook อ่านทุกเทิร์น · **pin ทุกโมเดล (override auto-detect)** · ไม่มีไฟล์ = auto-detect ตามโมเดล |
 | `~/.claude/commands/handoff-guard-max.md` | **slash command** — `/handoff-guard-max <max>` ตั้งเพดานเองโดยไม่ต้องแก้ `settings.json` |
+| `~/.claude/skills/handoff-guard/scripts/prune-worktrees.mjs` | **เก็บกวาด worktree ของ chip** — session จาก chip เรียกเอง (step 3) · เก็บ 5 อันล่าสุดเป็น snapshot, ถอนทะเบียนที่เหลือ (ข้าม dirty/ที่ยังถูกใช้) · **ไม่ลบ branch** |
+| `~/.claude/.handoff-guard/pointers/<slug>.json` + `counters.json` + `handoffs/` | **pointer per-worktree** (key ด้วย path เต็ม, หมดอายุ 7 วัน) + เลขลำดับ chip ต่อโปรเจกต์ + ที่เก็บ handoff doc ถาวร (ไม่ใช้ OS temp — โดน Disk Cleanup กวาดได้) |
 
 ## settings.json (`~/.claude/settings.json`)
 
@@ -88,4 +90,4 @@ T1/T2 ก็ priority เดียวกัน (env → config → `round(MAX×0
 - **predict ต้องมีอย่างน้อย 2 เทิร์น** กว่า EWMA จะตั้งตัว — session ที่พุ่งเร็วมากตั้งแต่ 2 เทิร์นแรกอาจข้าม predict ไปโดน absolute tier แทน (ตั้งใจ — fail-safe คุมอยู่)
 - EWMA ทำนายจาก growth ที่ผ่านมา — ถ้าพฤติกรรมเปลี่ยนกะทันหัน (เริ่มอ่านไฟล์ใหญ่รัวๆ) ETA จะ lag 1-2 เทิร์นก่อนปรับ (α คุม trade-off ไว/นิ่ง)
 - ถ้า auto-compact ของ Claude Code ยิง **ก่อน** ถึง threshold → ต้องลด threshold (จูนตามที่สังเกตจริง)
-- chip / spawn_task **ทำให้ deterministic ไม่ได้** (เป็นดุลพินิจ model) — guard นี้คุมเรื่อง handoff/context เท่านั้น
+- การตัดสินใจ handoff (จะ handoff ไหม/ตอนไหน) **ทำให้ deterministic ไม่ได้** (เป็นดุลพินิจ model) — guard นี้คุมเรื่อง handoff/context เท่านั้น · ต่อ session ใหม่ใช้ `/clear` ไม่ใช่ chip (chip = git worktree ใหม่ทุก handoff)

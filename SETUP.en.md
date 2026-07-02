@@ -8,12 +8,14 @@
 
 | File | Role |
 |------|------|
-| `~/.claude/hooks/context-guard.mjs` | **Stop hook** — L1 measures real tokens every turn + L2 EWMA growth → ETA · triggers (predict / ≥184k / ≥218k) → blocks and injects an instruction to invoke skill `handoff-guard` |
-| `~/.claude/hooks/session-resume.mjs` | **SessionStart hook** — finds a handoff file in the project/last-handoff → injects a pointer for the new session to read |
+| `~/.claude/hooks/context-guard.mjs` | **Stop hook** — L1 measures real tokens + the real model every turn + L2 EWMA growth → ETA · ceiling **auto-detects per model** (fable/mythos 512k · opus 256k · sonnet/haiku 200k · `[1m]` 1M) · triggers (predict / ≥T1 / ≥T2) → blocks and injects an instruction to invoke skill `handoff-guard` |
+| `~/.claude/hooks/session-resume.mjs` | **SessionStart hook** — finds a handoff file in the project/per-project pointer (`pointers/*.json`, 7-day expiry) → injects a pointer for the new session to read |
 | `~/.claude/skills/handoff-guard/SKILL.md` | **AI eval (L3+L4)** — decides whether to start a new session + does the handoff + verifies on resume |
 | `~/.claude/.handoff-guard/<session>.state.json` | **L2 state** — `{lastTokens, ema, turns}` per session (the hook reads/writes this itself, computing EWMA across turns) |
-| `~/.claude/.handoff-guard/config.json` | **Your own MAX/T1/T2** — written by `scripts/set-max.mjs` (via the `/handoff-guard-max` command), read by the hook every turn (no file = use default 256000) |
+| `~/.claude/.handoff-guard/config.json` | **Your own MAX/T1/T2** — written by `scripts/set-max.mjs` (via the `/handoff-guard-max` command), read by the hook every turn · **pins every model (overrides auto-detect)** · no file = auto-detect per model |
 | `~/.claude/commands/handoff-guard-max.md` | **slash command** — `/handoff-guard-max <max>` set your own ceiling without touching `settings.json` |
+| `~/.claude/skills/handoff-guard/scripts/prune-worktrees.mjs` | **Chip worktree cleanup** — the chip-spawned session runs this itself (step 3) · keeps the 5 most recent as snapshots, unregisters the rest (skips dirty/in-use ones) · **never deletes branches** |
+| `~/.claude/.handoff-guard/pointers/<slug>.json` + `counters.json` + `handoffs/` | **Per-worktree pointer** (keyed by full path, 7-day expiry) + per-project chip sequence number + permanent handoff doc storage (not OS temp — Disk Cleanup can sweep that) |
 
 ## settings.json (`~/.claude/settings.json`)
 
@@ -77,4 +79,4 @@ Covers: absolute (183k doesn't block · 185k tier1 · 218k tier2 · repeat fires
 - **predict needs at least 2 turns** for the EWMA to settle — a session that spikes very fast in its first 2 turns may skip predict and hit the absolute tier instead (intentional — the fail-safe still covers it)
 - EWMA predicts from past growth — if behavior changes suddenly (e.g. starts reading large files rapidly), the ETA will lag 1-2 turns before adjusting (α controls the react-fast vs. stay-smooth trade-off)
 - If Claude Code's auto-compact fires **before** the threshold is reached → you need to lower the threshold (tune based on what you actually observe)
-- A chip / spawn_task **cannot be made deterministic** (it's a model judgment call) — this guard only handles handoff/context concerns
+- The handoff decision (whether/when to hand off) **cannot be made deterministic** (it's a model judgment call) — this guard only handles handoff/context concerns · continue in a new session via `/clear`, not a chip (a chip spawns a fresh git worktree every handoff)

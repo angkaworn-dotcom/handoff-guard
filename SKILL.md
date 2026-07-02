@@ -48,29 +48,43 @@ description: Context Manager (V2) — observe→predict→decide→recover. Deci
 ### 3. ถ้าตัดสินว่า handoff
 1. สร้าง **handoff doc** ด้วย skill `handoff` (superpowers/Matt) — **บังคับใช้ (dependency ของ guard นี้)**
    invoke skill `handoff` · ส่ง focus ของ session ถัดไปเป็น argument + บังคับให้ครอบ **atomic/uncommitted, worktree/branch/env, BLOCKED**
+   **ที่เก็บ doc: `~/.claude/.handoff-guard/handoffs/` (สร้างโฟลเดอร์ถ้ายังไม่มี) — override default ของ skill `handoff` ที่เซฟลง OS temp** (Temp โดน Disk Cleanup/Storage Sense กวาดได้ → doc หายทั้งที่ pointer ยังชี้)
    > **ถ้า `handoff` ยังไม่ติดตั้ง** — อย่าปล่อยงานหาย ทำ 3 อย่าง:
    > 1. เขียน `HANDOFF.md` สั้นๆ **ตอนนี้** (ค้างทันที / worktree-branch-env / งานถัดไป+BLOCKED / gotchas · redact secret)
    > 2. **ติดตั้ง handoff ให้รอบหน้าอัตโนมัติ:** `node ~/.claude/skills/handoff-guard/scripts/ensure-handoff.mjs` (ดึงจาก github.com/mattpocock/skills → fallback vendored ถ้า offline)
    > 3. บอกผู้ใช้: ติดตั้ง `handoff` แล้ว — **restart session** เพื่อให้โหลด (skill โหลดตอนเปิด session ใช้ทันทีไม่ได้)
 2. อัปเดต state file ของ repo (เช่น `task.md`) ให้สดล่าสุด
-3. เขียน path ของ handoff ลง `~/.claude/.handoff-guard/last-handoff.txt` (ให้ SessionStart hook ของ session ใหม่หาเจอ)
-4. **chip session ใหม่ให้ผู้ใช้** (สะดวก ไม่ต้องเปิดเอง) — เรียก `mcp__ccd_session__spawn_task`:
-   - `title`: สั้น imperative เช่น "ต่องาน &lt;เรื่อง&gt; (handoff)"
-   - `prompt`: self-contained — สั่งให้ session ใหม่อ่าน handoff doc ที่ path นั้นก่อน + สรุปงานถัดไป/ไฟล์ค้าง (session ใหม่ไม่เห็นบทสนทนานี้)
-   - `tldr`: 1-2 ประโยคว่าจะทำอะไรต่อ
-   → คลิกเดียวเปิด session ใหม่ที่ pre-load งานต่อ
-5. บอกผู้ใช้ชัดเจน: "context ~Xk แล้ว — กด chip เพื่อเปิด session ใหม่ (หรือเปิดเองชี้ไป <handoff path>)" + สรุปงานค้าง 2-3 บรรทัด
+3. เขียน pointer **per-worktree** ด้วย **Write tool เท่านั้น**: `~/.claude/.handoff-guard/pointers/<slug ของ cwd เต็ม>.json` เนื้อหา `{"cwd":"<path cwd ปัจจุบันเต็ม>","handoff":"<path handoff doc เต็ม>"}`
+   - **slug = path cwd เต็ม → lowercase → แทนอักขระที่ไม่ใช่ a-z, 0-9, อักษรไทย ด้วย `-`** (เช่น `c--users-dell-documents-ระบบ-ลง-วันลา-leave-web-svelte.json`) — key ด้วย **path เต็ม** ไม่ใช่ชื่อโฟลเดอร์: main/แต่ละ worktree/โปรเจกต์ชื่อซ้ำกันคนละที่ ต่างได้ไฟล์ของตัวเอง ไม่เขียนทับกัน (เคยทับกันจริงตอน key ด้วยชื่อโปรเจกต์ — /clear เด้ง handoff ผิดตัว) · ชื่อไฟล์ไม่มีผลกับ matching — hook อ่าน field `cwd` ข้างใน
+   - **ห้ามเขียน pointer ผ่าน PowerShell (`Set-Content`/`Out-File`) หรือ bash `echo`** — BOM/UTF-16/path ไทยเพี้ยน ทำให้ hook parse ไม่ผ่านแบบเงียบแล้วไป fallback หยิบ handoff ตัวอื่น (Write tool = UTF-8 ไม่มี BOM · hook strip BOM กันไว้อีกชั้นแล้วแต่อย่าพึ่ง)
+   - hook match: **exact cwd ก่อน** แล้ว fallback prefix (main↔worktree ใต้ `.claude/worktrees/` ถือเป็นโปรเจกต์เดียวกัน) · **ห้ามเขียน `last-handoff.txt` แบบเก่า** (slot เดียว = ข้ามโปรเจกต์ปน) · pointer หมดอายุเอง 7 วัน
+4. **สร้าง chip ให้กดต่อคลิกเดียว (`mcp__ccd_session__spawn_task`)** — /clear เป็นทางเลือกสำรอง
+   - เลขลำดับ N: อ่าน `~/.claude/.handoff-guard/counters.json` (`{"<slug ของ path main repo root — กติกาเดียวกับ pointer>": N}`) → ใช้ค่าเดิม+1 · ไฟล์/คีย์ไม่มี → N = จำนวนไฟล์ `handoffs/handoff-<ชื่อโปรเจกต์>-*.md` + 1 · เขียนกลับด้วย **Write tool เท่านั้น**
+   - `title` = `ต่อ <N>. <focus สั้น>` (≤60 ตัว — เลขทำให้รู้ว่า chip ไหนล่าสุด) · `tldr` 1-2 ประโยคมีเลข N · `prompt` ตาม template (เติมค่าจริงทุก `<...>` — session ใหม่ไม่เห็นบทสนทนานี้):
+     ```
+     ต่องานจาก handoff #<N>: <focus>
+     คุณคือ session จาก chip ของ handoff-guard — cwd ปัจจุบันคือ worktree ใหม่ที่ harness เพิ่งสร้าง ทำ 3 step ก่อนเริ่มงาน:
+     1. ยกของ: เช็ค Test-Path ทั้งสองฝั่งก่อนเสมอ — ทำเฉพาะเมื่อ "<oldWorktree>\node_modules" มีอยู่ **และ** ".\node_modules" ยังไม่มี (ถ้าปลายทางมีอยู่ Move-Item จะย้ายไปซ้อนข้างในเงียบๆ ไม่ error!) → PowerShell: Move-Item "<oldWorktree>\node_modules" ".\node_modules" · ย้ายไม่ได้ (ถูกล็อก/ไม่มี) → ข้ามแล้ว npm install เมื่อจำเป็น — ห้าม force ห้าม kill process
+     2. ฐานโค้ด: HEAD ต้องมี commit <lastCommitHash> (tip ของ <oldBranch>) — เช็ค git merge-base --is-ancestor <lastCommitHash> HEAD · ไม่มี → git merge --ff-only <oldBranch> · ff ไม่ได้ = หยุดถามผู้ใช้ อย่าเดา
+     3. node ~/.claude/skills/handoff-guard/scripts/prune-worktrees.mjs --repo "<mainRepoRoot>" --keep 5
+     จากนั้นอ่าน <handoffPath> → รัน verify ตาม Layer 4 ของ skill handoff-guard ก่อนทำงานต่อ · งานใน handoff เสร็จหรือผู้ใช้เปลี่ยนงาน → ลบ pointer <handoffPointerPath>
+     ```
+   - pointer per-worktree ยังเขียนตามข้อ 3 เสมอ (เส้น /clear ต้องใช้ · chip กับ pointer อยู่ร่วมกัน)
+   > **ทำไมต้องยกของ+prune (อย่าตัด 3 step ออกจาก prompt):** spawn_task สร้าง worktree ใหม่เสมอตอนกด chip (ไม่มี option ปิด) และตัวกินดิสก์จริงคือ node_modules ~206MB/อัน (เคยกอง 60 อัน ≈10GB) → ยกของจากบ้านเก่า = ไม่ต้อง npm install ใหม่ · worktree เก่ากลายเป็น snapshot เบาไว้ย้อนกลับ เก็บ 5 อันล่าสุด · **branch ไม่ลบเด็ดขาด** = จุดย้อนทุกจุดกู้ได้เสมอด้วย `git worktree add <path> <branch>` · รายละเอียด: `specs/2026-07-02-chip-revival-d2-design.md`
+5. บอกผู้ใช้ชัดเจน: "context ~Xk แล้ว — **กด chip 'ต่อ <N>. <focus>' เพื่อเปิด session ต่อ** (แชทเก่าค้างไว้ย้อนดูได้) หรือพิมพ์ `/clear` ถ้าไม่ต้องการเก็บแชทเก่า · handoff จะโหลดเอง → `<handoff path>`" + สรุปงานค้าง 2-3 บรรทัด
 
 ### 4. ถ้าตัดสินว่าทำต่อ
 - ทำเฉพาะ step ที่ค้างให้จบ แล้ววนกลับมา handoff (marker กันเตือนซ้ำจนกว่าจะถึง tier ถัดไป)
 - **ห้ามเริ่ม feature/refactor ใหม่**
 
 ## Layer 4: Recovery (เมื่อ session ใหม่ resume งานต่อ)
-SessionStart hook ฉีด pointer ให้อ่าน handoff doc — **อ่านแล้วอย่าเพิ่งลุยต่อทันที รัน verify ก่อน continue:**
+SessionStart hook ฉีด pointer ให้อ่าน handoff doc · โชว์สรุป handoff (title/สถานะ/งานถัดไป) ผ่าน `systemMessage` (render เฉพาะ terminal CLI — แอป/extension ยังไม่แสดง ณ 2026-07 ดู issue #15344; ในแอปผู้ใช้ต้องพิมพ์ข้อความแรกเองก่อน Claude ถึงเริ่มอ่าน — hook trigger turn เองไม่ได้) — **อ่านแล้วอย่าเพิ่งลุยต่อทันที รัน verify ก่อน continue:**
+0. **(เฉพาะ session จาก chip)** ทำ 3 step ใน chip prompt ให้ครบก่อน (ยกของ / ฐานโค้ด / prune) — เปิดด้วย /clear ข้ามข้อนี้
 1. **`git status`** — ไฟล์ uncommitted ตรงกับที่ handoff ระบุไหม (ที่ note ว่า "ค้าง" มีจริงไหม / ที่บอกว่า commit แล้วค้างจริงหรือเปล่า)
 2. **branch / worktree** — อยู่ตัวเดียวกับที่ handoff บอกไหม (`git branch --show-current`, path)
 3. **`npm run check`** — state ไม่พังจาก session ก่อน (โปรเจกต์ leave-web ใช้ตัวนี้เป็น validation gate)
 4. **งานค้างใน handoff ตรงกับโค้ดจริงไหม** — เปิดไฟล์ที่ handoff อ้างดูว่าอยู่สถานะที่ระบุ → ค่อย continue
+5. **ปิดวงจร: งานใน handoff เสร็จแล้ว (หรือผู้ใช้เปลี่ยนไปงานอื่น) → ลบไฟล์ pointer ทิ้ง** (path อยู่ในข้อความ inject ของ hook) — pointer ที่ไม่ลบ = เด้งงานเก่าซ้ำทุก `/clear` จนหมดอายุ 7 วัน · doc ใน `handoffs/` เก็บไว้ตามเดิมไม่ต้องลบ
 
 > ถ้า verify **ไม่ตรง** (เช่น handoff บอก "commit แล้ว" แต่ git ยังค้าง, หรือ build พังทั้งที่ handoff บอกผ่าน) → **แจ้งผู้ใช้ก่อน อย่า continue ทับ** — handoff อาจถูกเขียนตอน session ก่อนกำลังจะตาย state เลยไม่ครบ
 

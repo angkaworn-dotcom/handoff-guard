@@ -21,7 +21,7 @@ There are three warning levels:
 - ⚠️ **Nearly full** — reached 72% of the ceiling
 - 🔴 **Urgent** — reached 85% of the ceiling
 
-It figures out each model's ceiling on its own (Fable/Opus 256k, Sonnet/Haiku 200k, long-context `[1m]` mode 1M), and if a session gets compacted and then grows back toward full again, it will warn a second time.
+It figures out each model's ceiling on its own (Fable/Mythos 512k, Opus 256k, Sonnet/Haiku 200k, long-context `[1m]` mode 1M), and if a session gets compacted and then grows back toward full again, it will warn a second time.
 
 ## Requirements
 
@@ -78,7 +78,7 @@ Or use env vars (env always wins — good for a one-off/testing override):
 
 | env | default | meaning |
 |-----|---------|---------|
-| `HANDOFF_GUARD_MAX` | auto per model | context ceiling — Fable/Opus 256k, Sonnet/Haiku/unknown 200k, `[1m]` 1M |
+| `HANDOFF_GUARD_MAX` | auto per model | context ceiling — Fable/Mythos 512k, Opus 256k, Sonnet/Haiku/unknown 200k, `[1m]` 1M |
 | `HANDOFF_GUARD_THRESHOLD` | 72% of the ceiling | the "nearly full" level |
 | `HANDOFF_GUARD_THRESHOLD2` | 85% of the ceiling | the "urgent" level |
 | `HANDOFF_GUARD_PREDICT_TURNS` | 3 | warn ahead when predicted to be full within ≤ this many turns |
@@ -89,6 +89,7 @@ Ceiling priority: **env > the value pinned with `/handoff-guard-max` > auto-dete
 ## Good to know / limitations
 
 - **If Claude Code auto-compacts before handoff-guard gets to warn you**, the guard stays silent (this can happen on lower-ceiling models like Sonnet) — fix it by lowering the ceiling, e.g. `/handoff-guard-max 150000`, so it warns earlier.
+- **Fable/Mythos are set to a 512k ceiling** (higher than the others) because their real context window is very large — the spec says 1M, and in practice a session was observed growing past 400k without Claude Code auto-compacting. Setting them to Opus's 256k would make the guard warn far too early while there's still a huge buffer left · to push it all the way to spec, use `/handoff-guard-max 1000000` (though it's not yet confirmed where Claude Code actually auto-compacts on a 1M window).
 - It's a **personal tool** tied to Claude Code's internal transcript format — if Claude Code changes that format down the road, this may need updating.
 - The ahead-of-time warning needs at least 2 turns to learn the growth rate first (if it spikes hard from the very start, the percentage levels take over instead).
 

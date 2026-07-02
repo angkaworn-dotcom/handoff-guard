@@ -117,10 +117,10 @@ check('G sonnet 171k → tier2 ด่วน (≥170000)', gS2 && gS2.decision ==
 check('G opus 183k → silent (< T1=184320)', run('hg-op-a', 183000, 'claude-opus-4-8') === '');
 const gO = parse(run('hg-op-b', 185000, 'claude-opus-4-8'));
 check('G opus 185k → tier1 block (≥184320)', gO && gO.decision === 'block' && /tier=tier1/.test(ctxOf(gO)));
-// Fable 5 เพดาน 256k (เท่า Opus) → 183k ยังไม่ block
-check('G fable 183k → silent (< T1=184320)', run('hg-fab-a', 183000, 'claude-fable-5') === '');
-const gF = parse(run('hg-fab-b', 185000, 'claude-fable-5'));
-check('G fable 185k → tier1 block (≥184320)', gF && gF.decision === 'block' && /tier=tier1/.test(ctxOf(gF)));
+// Fable 5 เพดาน 512k (window ใหญ่กว่า opus) → T1=round(512k·0.72)=368640: 368k เงียบ, 369k ยิง tier1
+check('G fable 368k → silent (< T1=368640)', run('hg-fab-a', 368000, 'claude-fable-5') === '');
+const gF = parse(run('hg-fab-b', 369000, 'claude-fable-5'));
+check('G fable 369k → tier1 block (≥368640)', gF && gF.decision === 'block' && /tier=tier1/.test(ctxOf(gF)));
 // long-context "[1m]" เพดาน 1M → T1=720000: 185k ยังเงียบ, 721k ยิง tier1
 check('G [1m] 185k → silent (< T1=720000)', run('hg-1m-a', 185000, 'claude-sonnet-4-5[1m]') === '');
 const g1 = parse(run('hg-1m-b', 721000, 'claude-sonnet-4-5[1m]'));

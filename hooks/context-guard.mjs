@@ -17,9 +17,23 @@ try {
   fileConfig = JSON.parse(readFileSync(join(homedir(), '.claude', '.handoff-guard', 'config.json'), 'utf8'));
 } catch { fileConfig = {}; }
 
+// kill switch: MAX=0 = ปิด guard ทั้งตัว (ไม่อ่าน transcript ไม่เตือน ไม่ block)
+// ตั้งด้วย `/handoff-guard-max 0` (เขียน config.json {max:0}) หรือ env HANDOFF_GUARD_MAX=0 (ชั่วคราว)
+// เปิดคืน: /handoff-guard-max reset (auto) หรือ /handoff-guard-max <n> (pin ค่าใหม่)
+{
+  const pinned = process.env.HANDOFF_GUARD_MAX ?? fileConfig.max;   // undefined = ไม่ได้ตั้ง → ไม่ใช่ kill switch
+  if (pinned !== undefined && pinned !== '' && Number(pinned) === 0) process.exit(0);
+}
+
 // เพดาน context ต่อโมเดล — auto-detect ต่อเทิร์นจาก message.model (transcript บันทึกให้ + เปลี่ยนกลางเซสชันได้)
-// opus 256k · sonnet/haiku/ไม่รู้จัก 200k (ไม่รู้จัก = สมมติเล็กสุด → guard ยิงเร็วดีกว่าไม่ยิงเลยบนโมเดลเพดานต่ำ)
-const windowForModel = (m) => /opus/.test(m) ? 256000 : 200000;
+// "[1m]" (long-context 1M) > fable/mythos 512k > opus 256k > sonnet/haiku/ไม่รู้จัก 200k
+// fable/mythos: window จริงใหญ่มาก (spec 1M — สังเกตจริงโตทะลุ 400k โดยยังไม่ auto-compact) →
+//   ตั้ง 512k เป็นกันชนครึ่งทาง: สูงพอไม่เตือนเร็วเกิน แต่ยังเผื่อไว้เผื่อ CC compact ก่อน 1M (อยากดันสุด: pin 1000000)
+// (ไม่รู้จัก = สมมติเล็กสุด → guard ยิงเร็วดีกว่าไม่ยิงเลยบนโมเดลเพดานต่ำ)
+const windowForModel = (m) =>
+  /\[1m\]/.test(m) ? 1000000 :
+  /fable|mythos/.test(m) ? 512000 :
+  /opus/.test(m) ? 256000 : 200000;
 
 const K = Number(process.env.HANDOFF_GUARD_PREDICT_TURNS || 3);     // lead time (เทิร์น) ของ predict trigger
 const ALPHA = Number(process.env.HANDOFF_GUARD_EMA_ALPHA || 0.4);   // น้ำหนัก EWMA ของ delta ล่าสุด

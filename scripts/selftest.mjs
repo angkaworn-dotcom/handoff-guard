@@ -3,13 +3,21 @@
 // สร้าง transcript ปลอมที่มี usage ตามต้องการ แล้วยิง hook ดูว่า block ถูก tier ไหม + EWMA/predict + marker กันซ้ำ
 // state.json persist ข้าม run ใน session เดียว → ทดสอบ EWMA ข้ามเทิร์นได้ตรงๆ
 import { spawnSync } from 'node:child_process';
-import { writeFileSync, readFileSync, mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 
-const HOOK = join(homedir(), '.claude', 'hooks', 'context-guard.mjs');
+const HOOK = process.env.HANDOFF_GUARD_HOOK || join(homedir(), '.claude', 'hooks', 'context-guard.mjs');
 const tmp = mkdtempSync(join(tmpdir(), 'hg-'));
-const markerDir = join(homedir(), '.claude', '.handoff-guard');
+
+// hermetic: ชี้ home ปลอมให้ hook (กัน config.json / marker จริงของเครื่อง mask ผลเทสต์)
+// + strip HANDOFF_GUARD_* env ที่ override threshold
+const fakeHome = mkdtempSync(join(tmpdir(), 'hg-home-'));
+const markerDir = join(fakeHome, '.claude', '.handoff-guard');
+const cleanEnv = { ...process.env, USERPROFILE: fakeHome, HOME: fakeHome };
+for (const k of Object.keys(cleanEnv)) {
+  if (/^HANDOFF_GUARD_(MAX|THRESHOLD|THRESHOLD2|PREDICT_TURNS|EMA_ALPHA)$/.test(k)) delete cleanEnv[k];
+}
 
 function makeTranscript(tokens, model = 'claude-opus-4-8') {
   const p = join(tmp, `t-${tokens}-${Math.random().toString(36).slice(2)}.jsonl`);
@@ -27,7 +35,7 @@ function run(sessionId, tokens, model) {
   const input = JSON.stringify({
     session_id: sessionId, transcript_path: makeTranscript(tokens, model), hook_event_name: 'Stop',
   });
-  return spawnSync('node', [HOOK], { input, encoding: 'utf8' }).stdout.trim();
+  return spawnSync('node', [HOOK], { input, encoding: 'utf8', env: cleanEnv }).stdout.trim();
 }
 
 function readState(sessionId) {
@@ -40,13 +48,7 @@ const check = (name, cond) => { if (cond) { pass++; console.log('  PASS', name);
 const parse = (s) => { try { return JSON.parse(s); } catch { return null; } };
 const ctxOf = (o) => (o && o.hookSpecificOutput && o.hookSpecificOutput.additionalContext) || '';
 
-console.log('context-guard self-test (V2)');
-
-// config.json หรือ env override จะ mask การ detect โมเดล → เตือนกัน [A][B][G] เพี้ยนโดยไม่รู้ตัว
-if (existsSync(join(markerDir, 'config.json')) || process.env.HANDOFF_GUARD_MAX
-    || process.env.HANDOFF_GUARD_THRESHOLD || process.env.HANDOFF_GUARD_THRESHOLD2) {
-  console.log('⚠️  พบ config.json หรือ HANDOFF_GUARD_* env — override auto-detect: เทสต์ [A][B][G] อาจไม่ตรง');
-}
+console.log('context-guard self-test (V2) — hermetic (fake home, ไม่แตะ config/marker จริง)');
 
 // ── A. absolute tiers (regression — ต้องคงผ่าน · เพดาน 256k: T1=round(256k·0.72)=184320, T2=round(256k·0.85)=217600) ──
 console.log('\n[A] absolute tiers (regression)');
@@ -115,6 +117,14 @@ check('G sonnet 171k → tier2 ด่วน (≥170000)', gS2 && gS2.decision ==
 check('G opus 183k → silent (< T1=184320)', run('hg-op-a', 183000, 'claude-opus-4-8') === '');
 const gO = parse(run('hg-op-b', 185000, 'claude-opus-4-8'));
 check('G opus 185k → tier1 block (≥184320)', gO && gO.decision === 'block' && /tier=tier1/.test(ctxOf(gO)));
+// Fable 5 เพดาน 512k (window ใหญ่กว่า opus) → T1=round(512k·0.72)=368640: 368k เงียบ, 369k ยิง tier1
+check('G fable 368k → silent (< T1=368640)', run('hg-fab-a', 368000, 'claude-fable-5') === '');
+const gF = parse(run('hg-fab-b', 369000, 'claude-fable-5'));
+check('G fable 369k → tier1 block (≥368640)', gF && gF.decision === 'block' && /tier=tier1/.test(ctxOf(gF)));
+// long-context "[1m]" เพดาน 1M → T1=720000: 185k ยังเงียบ, 721k ยิง tier1
+check('G [1m] 185k → silent (< T1=720000)', run('hg-1m-a', 185000, 'claude-sonnet-4-5[1m]') === '');
+const g1 = parse(run('hg-1m-b', 721000, 'claude-sonnet-4-5[1m]'));
+check('G [1m] 721k → tier1 block (≥720000)', g1 && g1.decision === 'block' && /tier=tier1/.test(ctxOf(g1)));
 // โมเดลไม่รู้จัก/ว่าง → fallback 200000 → T1=144000 (ยิงเร็ว = ปลอดภัย)
 const gU = parse(run('hg-unk', 145000, 'weird-model-x'));
 check('G unknown model 145k → tier1 (fallback 200k)', gU && gU.decision === 'block' && /tier=tier1/.test(ctxOf(gU)));
@@ -130,17 +140,22 @@ check('H compaction 100k → silent + re-arm', run('hg-rearm', 100000) === '');
 const h2 = parse(run('hg-rearm', 185000));                // ต้องยิงซ้ำได้ หลัง re-arm
 check('H 185k หลัง compact → tier1 ยิงซ้ำ (re-armed) ✅', h2 && h2.decision === 'block' && /tier=tier1/.test(ctxOf(h2)));
 
+// ── I. kill switch (MAX=0 = ปิด guard ทั้งตัว) ────────────────────────────────
+console.log('\n[I] kill switch (MAX=0)');
+// env HANDOFF_GUARD_MAX=0 → เงียบแม้ token สูงมาก (900k)
+const offEnv = spawnSync('node', [HOOK], {
+  input: JSON.stringify({ session_id: 'hg-off-env', transcript_path: makeTranscript(900000, 'claude-opus-4-8'), hook_event_name: 'Stop' }),
+  encoding: 'utf8', env: { ...cleanEnv, HANDOFF_GUARD_MAX: '0' },
+}).stdout.trim();
+check('I env MAX=0 → silent (ปิด) แม้ 900k', offEnv === '');
+// config.json {max:0} → เงียบเช่นกัน (เขียนท้ายสุดก่อน cleanup เพื่อไม่ให้ mask เทสต์อื่น)
+mkdirSync(markerDir, { recursive: true });
+writeFileSync(join(markerDir, 'config.json'), JSON.stringify({ max: 0 }));
+check('I config max=0 → silent (ปิด) แม้ 900k', run('hg-off-cfg', 900000, 'claude-opus-4-8') === '');
+
 // ── cleanup ──────────────────────────────────────────────────────────────────
-const sessions = ['hg-test-a', 'hg-test-b', 'hg-test-c', 'hg-test-d',
-                  'hg-predict', 'hg-cold', 'hg-spike', 'hg-comp',
-                  'hg-son-a', 'hg-son-b', 'hg-son-c', 'hg-op-a', 'hg-op-b', 'hg-unk',
-                  'hg-rearm'];
-for (const s of sessions) {
-  for (const ext of ['t1', 't2', 'p', 'state.json']) {
-    const m = join(markerDir, `${s}.${ext}`);
-    if (existsSync(m)) rmSync(m);
-  }
-}
+// marker/state ทั้งหมดอยู่ใน fakeHome → ลบทิ้งทั้งก้อน ไม่กระทบของจริง
+rmSync(fakeHome, { recursive: true, force: true });
 rmSync(tmp, { recursive: true, force: true });
 
 console.log(`\n${fail === 0 ? 'ALL PASS ✅' : 'FAILURES ❌'} — ${pass} pass, ${fail} fail`);

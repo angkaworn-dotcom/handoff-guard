@@ -1,6 +1,6 @@
 ---
 description: ตั้งเพดาน context (MAX) ของ handoff-guard เอง — คำนวณ tier1/tier2 ใหม่อัตโนมัติ, มีผลทันทีไม่ต้อง restart
-argument-hint: <max_tokens>|reset
+argument-hint: <max_tokens>|reset|0
 allowed-tools: ["Bash"]
 ---
 
@@ -12,16 +12,18 @@ allowed-tools: ["Bash"]
 
 ## Argument
 
-`$ARGUMENTS` = จำนวน token สูงสุดของ context window เช่น:
-- `200000` — Claude มาตรฐาน (200k)
-- `256000` — ค่า default ปัจจุบันของ handoff-guard
-- `1000000` — long-context beta (1M)
-- `reset` หรือ `default` — ลบ config กลับไปใช้ default (256000)
+`$ARGUMENTS` = จำนวน token สูงสุดของ context window **ตั้งตามการใช้งานจริง** เช่น:
+- `200000` — Sonnet/Haiku (200k)
+- `256000` — Opus (256k)
+- `512000` — Fable/Mythos (window ใหญ่ ตั้งสูงกันเตือนเร็วเกิน)
+- `1000000` — long-context beta / อยากดัน Fable ให้สุด spec (1M)
+- `0` — **ปิด handoff-guard** (ไม่เตือน/ไม่ block เลย จนกว่าจะตั้งใหม่)
+- `reset` หรือ `default` — ลบ config กลับไป auto-detect ตามโมเดล (แนะนำถ้าสลับหลายโมเดล)
 
 ## ขั้นตอน
 
-1. ถ้า `$ARGUMENTS` ว่าง → ถามผู้ใช้ด้วย AskUserQuestion ว่าอยากตั้งเท่าไหร่ (เสนอ 200000 / 256000 / 1000000 / reset เป็นตัวเลือก) ก่อนรันสคริปต์
-2. ถ้า `$ARGUMENTS` ไม่ใช่ตัวเลขและไม่ใช่ `reset`/`default` → บอกผู้ใช้ว่าใส่ผิดรูปแบบ พร้อมตัวอย่างที่ถูก แล้วหยุด (อย่าเดาค่า)
+1. ถ้า `$ARGUMENTS` ว่าง → ถามผู้ใช้ด้วย AskUserQuestion ว่าอยากตั้งเท่าไหร่ (เสนอ 256000 / 512000 / 1000000 / reset / 0 เป็นตัวเลือก) ก่อนรันสคริปต์
+2. ถ้า `$ARGUMENTS` ไม่ใช่ตัวเลขและไม่ใช่ `reset`/`default`/`0`/`off`/`disable` → บอกผู้ใช้ว่าใส่ผิดรูปแบบ พร้อมตัวอย่างที่ถูก แล้วหยุด (อย่าเดาค่า)
 3. รันสคริปต์ตั้งค่า (หา path จริงก่อนด้วย `ls ~/.claude/skills/handoff-guard/scripts/set-max.mjs` เผื่อผู้ใช้ติดตั้งคนละ path):
    ```bash
    node ~/.claude/skills/handoff-guard/scripts/set-max.mjs $ARGUMENTS

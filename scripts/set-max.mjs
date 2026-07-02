@@ -23,7 +23,17 @@ const arg0 = (process.argv[2] || '').trim().toLowerCase();
 
 if (!arg0 || arg0 === 'reset' || arg0 === 'default') {
   if (existsSync(configPath)) unlinkSync(configPath);
-  console.log('✅ รีเซ็ตแล้ว — ลบ config, กลับไป auto-detect เพดานจากโมเดลต่อเทิร์น (opus 256k · sonnet/haiku 200k)');
+  console.log('✅ รีเซ็ตแล้ว — ลบ config, กลับไป auto-detect เพดานจากโมเดลต่อเทิร์น (fable/mythos 512k · opus 256k · sonnet/haiku 200k · [1m] 1M)');
+  process.exit(0);
+}
+
+// 0 / off / disable = kill switch — เขียน {max:0} ให้ hook ปิดตัวเอง (ไม่เตือน/ไม่ block)
+if (arg0 === '0' || arg0 === 'off' || arg0 === 'disable') {
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(configPath, JSON.stringify({ max: 0 }, null, 2));
+  console.log('🔕 ปิด handoff-guard แล้ว (MAX=0) — จะไม่เตือน/ไม่ block จนกว่าจะตั้งค่าใหม่');
+  console.log(`   บันทึกที่ ${configPath} — มีผลเทิร์นถัดไป`);
+  console.log('   เปิดคืน: /handoff-guard-max reset (กลับไป auto) หรือ /handoff-guard-max <n> (ตั้งเพดานเอง)');
   process.exit(0);
 }
 

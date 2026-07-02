@@ -18,8 +18,11 @@ try {
 } catch { fileConfig = {}; }
 
 // เพดาน context ต่อโมเดล — auto-detect ต่อเทิร์นจาก message.model (transcript บันทึกให้ + เปลี่ยนกลางเซสชันได้)
-// opus 256k · sonnet/haiku/ไม่รู้จัก 200k (ไม่รู้จัก = สมมติเล็กสุด → guard ยิงเร็วดีกว่าไม่ยิงเลยบนโมเดลเพดานต่ำ)
-const windowForModel = (m) => /opus/.test(m) ? 256000 : 200000;
+// "[1m]" (long-context 1M) > fable/mythos/opus 256k > sonnet/haiku/ไม่รู้จัก 200k
+// (ไม่รู้จัก = สมมติเล็กสุด → guard ยิงเร็วดีกว่าไม่ยิงเลยบนโมเดลเพดานต่ำ)
+const windowForModel = (m) =>
+  /\[1m\]/.test(m) ? 1000000 :
+  /opus|fable|mythos/.test(m) ? 256000 : 200000;
 
 const K = Number(process.env.HANDOFF_GUARD_PREDICT_TURNS || 3);     // lead time (เทิร์น) ของ predict trigger
 const ALPHA = Number(process.env.HANDOFF_GUARD_EMA_ALPHA || 0.4);   // น้ำหนัก EWMA ของ delta ล่าสุด

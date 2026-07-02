@@ -21,7 +21,7 @@ There are three warning levels:
 - ⚠️ **Nearly full** — reached 72% of the ceiling
 - 🔴 **Urgent** — reached 85% of the ceiling
 
-It figures out each model's ceiling on its own (Opus 256k, Sonnet/Haiku 200k), and if a session gets compacted and then grows back toward full again, it will warn a second time.
+It figures out each model's ceiling on its own (Fable/Opus 256k, Sonnet/Haiku 200k, long-context `[1m]` mode 1M), and if a session gets compacted and then grows back toward full again, it will warn a second time.
 
 ## Requirements
 
@@ -63,7 +63,7 @@ Paths in `settings.json` must be absolute:
 ## Verify
 
 ```bash
-node ~/.claude/skills/handoff-guard/scripts/selftest.mjs   # should print ALL PASS (32 cases)
+node ~/.claude/skills/handoff-guard/scripts/selftest.mjs   # should print ALL PASS (36 cases)
 ```
 
 To try the real thing: temporarily set `HANDOFF_GUARD_THRESHOLD=1` and type any sentence — Claude should get stopped and bounce straight to the hand-off flow. When you're done, `unset HANDOFF_GUARD_THRESHOLD` (back to auto) and delete the marker files in `~/.claude/.handoff-guard/` (`*.p`, `*.t1`, `*.t2`, `*.state.json`).
@@ -78,7 +78,7 @@ Or use env vars (env always wins — good for a one-off/testing override):
 
 | env | default | meaning |
 |-----|---------|---------|
-| `HANDOFF_GUARD_MAX` | auto per model | context ceiling — Opus 256k, Sonnet/Haiku/unknown 200k |
+| `HANDOFF_GUARD_MAX` | auto per model | context ceiling — Fable/Opus 256k, Sonnet/Haiku/unknown 200k, `[1m]` 1M |
 | `HANDOFF_GUARD_THRESHOLD` | 72% of the ceiling | the "nearly full" level |
 | `HANDOFF_GUARD_THRESHOLD2` | 85% of the ceiling | the "urgent" level |
 | `HANDOFF_GUARD_PREDICT_TURNS` | 3 | warn ahead when predicted to be full within ≤ this many turns |

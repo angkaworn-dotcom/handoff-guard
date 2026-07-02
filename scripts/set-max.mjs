@@ -23,7 +23,7 @@ const arg0 = (process.argv[2] || '').trim().toLowerCase();
 
 if (!arg0 || arg0 === 'reset' || arg0 === 'default') {
   if (existsSync(configPath)) unlinkSync(configPath);
-  console.log('✅ รีเซ็ตแล้ว — ลบ config, กลับไป auto-detect เพดานจากโมเดลต่อเทิร์น (opus 256k · sonnet/haiku 200k)');
+  console.log('✅ รีเซ็ตแล้ว — ลบ config, กลับไป auto-detect เพดานจากโมเดลต่อเทิร์น (fable/opus 256k · sonnet/haiku 200k · [1m] 1M)');
   process.exit(0);
 }
 

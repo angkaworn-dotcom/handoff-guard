@@ -74,7 +74,7 @@
 - ขอบเขต: เฉพาะโฟลเดอร์ใต้ `<repo>/.claude/worktrees/` เท่านั้น
 - **Guard (ข้ามเสมอ ไม่มีข้อยกเว้น):**
   - cwd ปัจจุบันของ process (ห้ามลบบ้านตัวเอง)
-  - keep-list: `['leave-db-redesign-feat']` (const แก้ในไฟล์)
+  - keep-list: `['pinned-feat']` (const แก้ในไฟล์)
   - dirty: `git -C <wt> status --porcelain` มีบรรทัดที่**อยู่นอก `node_modules/`** (แก้ไขจากตอนแรก — ค้นพบตอน implement ว่า repo นี้ track node_modules ใน git และ clean script เคยลบทิ้ง ทำให้ 57 อันขึ้น dirty ทั้งที่ไม่มีงานจริงค้าง; dirt ใน node_modules = git มีเนื้อไฟล์อยู่แล้ว ไม่ใช่งาน) · การลบใช้ `git worktree remove --force` — ปลอดภัยเพราะ candidate ผ่านเช็ค realDirt ว่างแล้ว (git เองนับ node_modules หาย/ไฟล์ ignored เป็น dirty เลยต้อง force)
   - mtime ภายใน 2 วัน
 - ที่เหลือเรียง mtime ใหม่→เก่า เก็บ N อันแรก ลบที่เหลือด้วย `git -C <mainRepoRoot> worktree remove <path>` (ไม่ใช้ `--force` — git ปฏิเสธ dirty ให้อีกชั้น) · ลบ fail = log แล้วข้าม ไม่ throw

@@ -116,3 +116,5 @@ Full details in [SETUP.md](SETUP.md) · V2 design in [docs/V2-design.md](docs/V2
 ---
 
 The hand-off doc is produced by Matt Pocock's `handoff` skill ([mattpocock/skills](https://github.com/mattpocock/skills)) · `vendor/handoff/` is a pinned copy used as the primary install source (upstream is fetched only if the copy is missing — content injected into Claude's context should be a reviewed version, not a live main branch) (© Matt Pocock).
+
+Want the latest `handoff` from upstream: `node ~/.claude/skills/handoff-guard/scripts/ensure-handoff.mjs --check` to see the diff first, then `--update` to take it (the old version is backed up as `SKILL.md.bak` · restart the session afterwards) — updating is always an explicit command, never an automatic pull.

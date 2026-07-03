@@ -46,15 +46,15 @@ Protects work from being lost when context is nearly full — **predicts ahead o
    **Doc location: `~/.claude/.handoff-guard/handoffs/` (create the folder if missing) — override the `handoff` skill's default of saving to the OS temp dir** (Temp gets swept by Disk Cleanup/Storage Sense → the doc vanishes while the pointer still points at it)
    > **If `handoff` isn't installed yet** — don't let work get lost, do 3 things:
    > 1. Write a short `HANDOFF.md` **right now** (what's uncommitted / worktree-branch-env / next task+BLOCKED / gotchas · redact secrets)
-   > 2. **Install handoff automatically for next time:** `node ~/.claude/skills/handoff-guard/scripts/ensure-handoff.mjs` (fetches from github.com/mattpocock/skills → falls back to the vendored copy if offline)
+   > 2. **Install handoff automatically for next time:** `node ~/.claude/skills/handoff-guard/scripts/ensure-handoff.mjs` (installs from the vendored copy bundled in this package → fetches from github.com/mattpocock/skills only if the copy is missing)
    > 3. Tell the user: `handoff` has been installed — **restart the session** for it to load (skills load at session start, not usable immediately)
 2. Update the repo's state file (e.g. `task.md`) to be fully current
 3. Write a **per-worktree** pointer using the **Write tool ONLY**: `~/.claude/.handoff-guard/pointers/<slug of full cwd>.json` containing `{"cwd":"<full current cwd path>","handoff":"<full handoff doc path>"}`
-   - **slug = full cwd path → lowercase → replace every char that is not a-z, 0-9, or Thai with `-`** (e.g. `c--users-dell-documents-ระบบ-ลง-วันลา-leave-web-svelte.json`) — key by **full path**, not folder name: main / each worktree / same-named projects in different locations each get their own file, no overwrites (keying by project name caused real overwrites — `/clear` resumed the wrong handoff) · the filename itself doesn't affect matching — the hook reads the `cwd` field inside
+   - **slug = full cwd path → lowercase → replace every char that is not a-z, 0-9, or Thai with `-`** (e.g. `c--users-me-projects-my-app.json`) — key by **full path**, not folder name: main / each worktree / same-named projects in different locations each get their own file, no overwrites (keying by project name caused real overwrites — `/clear` resumed the wrong handoff) · the filename itself doesn't affect matching — the hook reads the `cwd` field inside
    - **Never write the pointer via PowerShell (`Set-Content`/`Out-File`) or bash `echo`** — BOM/UTF-16/mangled Thai paths make the hook's JSON.parse fail silently and fall back to someone else's handoff (Write tool = UTF-8 without BOM · the hook also strips BOM as a second layer, but don't rely on it)
    - Hook matching: **exact cwd first**, then prefix fallback (main ↔ worktrees under `.claude/worktrees/` count as the same project) · **do NOT write the old `last-handoff.txt`** (single slot = cross-project pollution) · pointers self-expire after 7 days
-4. **Create a chip for one-click continuation (`mcp__ccd_session__spawn_task`)** — /clear remains the fallback
-   - Sequence number N: read `~/.claude/.handoff-guard/counters.json` (`{"<slug of the main repo root path — same rule as pointers>": N}`) → new N = old value + 1 · file/key missing → N = count of `handoffs/handoff-<project name>-*.md` files + 1 · write back with the **Write tool ONLY**
+4. **Create a chip for one-click continuation (`mcp__ccd_session__spawn_task`)** — only when the session has this tool (Claude Code desktop app) · **no such tool → skip this entire step**; the /clear + pointer path (step 3) is fully equivalent
+   - Sequence number N = count of existing `handoffs/handoff-<project name>-*.md` files + 1 (always count real files — **never use a shared counter file**: two sessions handing off concurrently would read-modify-write over each other · a duplicate number from concurrent counting is merely cosmetic)
    - `title` = `ต่อ <N>. <short focus>` (≤60 chars — the number shows which chip is newest) · `tldr` 1-2 sentences including N · `prompt` per the template (fill in every `<...>` with real values — the new session cannot see this conversation):
      ```
      ต่องานจาก handoff #<N>: <focus>
@@ -65,7 +65,7 @@ Protects work from being lost when context is nearly full — **predicts ahead o
      Then read <handoffPath> → run the Layer 4 verify checklist of the handoff-guard skill before continuing · when the handoff's work is done or the user moves on → delete the pointer <handoffPointerPath>
      ```
    - Still write the per-worktree pointer per step 3 (the /clear path needs it · chip and pointer coexist)
-   > **Why carry-over + prune (do not drop the 3 steps from the prompt):** spawn_task always creates a fresh worktree on chip click (no way to disable) and the real disk eater is node_modules ~206MB each (this project once piled up 60 worktrees ≈10GB) → carrying over = no reinstall · the old worktree becomes a light rollback snapshot, keep the 5 newest · **never delete branches** = every rollback point stays recoverable via `git worktree add <path> <branch>` · details: `specs/2026-07-02-chip-revival-d2-design.md`
+   > **Why carry-over + prune (do not drop the 3 steps from the prompt):** spawn_task always creates a fresh worktree on chip click (no way to disable) and the real disk eater is node_modules ~206MB each (this project once piled up 60 worktrees ≈10GB) → carrying over = no reinstall · the old worktree becomes a light rollback snapshot, keep the 5 newest · **never delete branches** = every rollback point stays recoverable via `git worktree add <path> <branch>` · to permanently protect a worktree from pruning → `git worktree lock <path>` (the script always skips locked ones) or pass `--keep-list name1,name2` · details: `specs/2026-07-02-chip-revival-d2-design.md`
 5. Tell the user clearly: "context is ~Xk now — **click the chip 'ต่อ <N>. <focus>' to continue in a new session** (the old chat stays around to scroll back through), or type `/clear` if you don't need the old chat · the handoff loads automatically → `<handoff path>`" + a 2-3 line summary of what's pending
 
 ### 4. If the decision is to keep going
@@ -77,7 +77,7 @@ The SessionStart hook injects a pointer to read the handoff doc · shows the use
 0. **(chip-spawned sessions only)** complete the 3 steps from the chip prompt first (carry-over / code base / prune) — skip this item when resuming via /clear
 1. **`git status`** — do the uncommitted files match what the handoff says (do the files noted as "pending" actually exist / is what it claims was committed actually committed)
 2. **branch / worktree** — is this the same one the handoff says (`git branch --show-current`, path)
-3. **`npm run check`** — state isn't broken from the prior session (the leave-web project uses this as its validation gate)
+3. **The project's validation gate** — state isn't broken from the prior session (use whatever the project has, e.g. `npm run check` / `npm test` / lint · project has no gate → skip this item)
 4. **Does the pending work in the handoff match the actual code?** — open the files the handoff references to check they're in the state it claims → then continue
 5. **Close the loop: when the handoff's work is done (or the user moved on to something else) → delete the pointer file** (its path is included in the hook's injected message) — an unconsumed pointer re-announces stale work on every `/clear` until it expires after 7 days · keep the doc in `handoffs/` as-is
 

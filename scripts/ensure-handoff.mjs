@@ -1,6 +1,10 @@
 #!/usr/bin/env node
 // ensure skill `handoff` (Matt Pocock — github.com/mattpocock/skills) ติดตั้งแล้ว
-// ถ้าไม่มี: (1) ดึงจาก source จริงผ่าน fetch  (2) ถ้าดึงไม่ได้ → fallback สำเนา vendored
+// ถ้าไม่มี: (1) ใช้สำเนา vendored ในแพ็กเกจ (ผ่านการรีวิวแล้ว — deterministic)
+//          (2) vendored หาย → ค่อยดึงจาก upstream ผ่าน fetch
+// ลำดับนี้ตั้งใจ: SKILL.md ที่ติดตั้งจะถูกฉีดเข้า context ของ Claude โดยตรง —
+// ดึง upstream (branch main, ไม่ pin) เป็นทางหลัก = ถ้า upstream เปลี่ยน/โดน compromise
+// จะได้เนื้อหาที่ไม่เคยรีวิวมารันทันที · vendored-first ตัดความเสี่ยงนั้น
 // หมายเหตุ: skill โหลดตอนเปิด session → ติดตั้งแล้วต้อง restart ถึง invoke ได้
 // ใช้ได้ 2 ทาง: (a) รันตรงจาก CLI  (b) import { ensureHandoff } แล้วเรียกจาก hook อื่น (เช่น session-resume.mjs)
 import { existsSync, mkdirSync, copyFileSync, writeFileSync } from 'node:fs';
@@ -31,7 +35,7 @@ function fromVendored(targetSkill) {
   copyFileSync(v, targetSkill);
 }
 
-// คืนค่า { installed: boolean, source: 'already'|'upstream'|'vendored'|null, message: string }
+// คืนค่า { installed: boolean, source: 'already'|'vendored'|'upstream'|null, message: string }
 export async function ensureHandoff() {
   const target = join(homedir(), '.claude', 'skills', 'handoff');
   const targetSkill = join(target, 'SKILL.md');
@@ -42,19 +46,19 @@ export async function ensureHandoff() {
   mkdirSync(target, { recursive: true });
 
   try {
-    await fromUpstream(targetSkill);
+    fromVendored(targetSkill);
     return {
       installed: true,
-      source: 'upstream',
-      message: 'handoff: ติดตั้งจาก upstream (mattpocock/skills) → ' + target + ' · restart session เพื่อโหลด',
+      source: 'vendored',
+      message: 'handoff: ติดตั้งจากสำเนา vendored (© Matt Pocock) → ' + target + ' · restart session เพื่อโหลด',
     };
   } catch (e) {
     try {
-      fromVendored(targetSkill);
+      await fromUpstream(targetSkill);
       return {
         installed: true,
-        source: 'vendored',
-        message: 'handoff: upstream ไม่ได้ (' + e.message + ') → ใช้ vendored → ' + target + ' · restart session',
+        source: 'upstream',
+        message: 'handoff: vendored ไม่ได้ (' + e.message + ') → ดึงจาก upstream (mattpocock/skills) → ' + target + ' · restart session',
       };
     } catch (e2) {
       return { installed: false, source: null, message: 'handoff: ติดตั้งไม่สำเร็จ — ' + e2.message };

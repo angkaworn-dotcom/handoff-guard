@@ -53,7 +53,7 @@ It's safe to re-run (overwrites with the latest, only adds hooks that aren't alr
 ```bash
 # 1) skill (includes scripts/ and vendor/ — vendor has a copy of handoff for auto-install)
 cp -r SKILL.md SETUP.md scripts vendor  ~/.claude/skills/handoff-guard/
-# 2) make sure the handoff skill is installed (copies from the vendored copy if missing)
+# 2) make sure the handoff skill is installed (vendored copy first; upstream fetch only as fallback)
 node ~/.claude/skills/handoff-guard/scripts/ensure-handoff.mjs
 # 3) hooks
 cp hooks/context-guard.mjs hooks/session-resume.mjs  ~/.claude/hooks/
@@ -70,7 +70,7 @@ Paths in `settings.json` must be absolute:
 ## Verify
 
 ```bash
-node ~/.claude/skills/handoff-guard/scripts/selftest.mjs   # should print ALL PASS (38 cases)
+node ~/.claude/skills/handoff-guard/scripts/selftest.mjs   # should print ALL PASS (47 cases)
 ```
 
 To try the real thing: temporarily set `HANDOFF_GUARD_THRESHOLD=1` and type any sentence — Claude should get stopped and bounce straight to the hand-off flow. When you're done, `unset HANDOFF_GUARD_THRESHOLD` (back to auto) and delete the marker files in `~/.claude/.handoff-guard/` (`*.p`, `*.t1`, `*.t2`, `*.state.json`).
@@ -104,15 +104,15 @@ Ceiling priority: **env > the value pinned with `/handoff-guard-max` > auto-dete
 
 - **If Claude Code auto-compacts before handoff-guard gets to warn you**, the guard stays silent (this can happen on lower-ceiling models like Sonnet) — fix it by lowering the ceiling, e.g. `/handoff-guard-max 150000`, so it warns earlier.
 - **Fable/Mythos are set to a 512k ceiling** (higher than the others) because their real context window is very large — the spec says 1M, and in practice a session was observed growing past 400k without Claude Code auto-compacting. Setting them to Opus's 256k would make the guard warn far too early while there's still a huge buffer left · to push it all the way to spec, use `/handoff-guard-max 1000000` (though it's not yet confirmed where Claude Code actually auto-compacts on a 1M window).
-- It's a **personal tool** tied to Claude Code's internal transcript format — if Claude Code changes that format down the road, this may need updating.
+- It's tied to Claude Code's internal transcript format — if Claude Code changes that format down the road, this may need updating · a new model the auto-detect doesn't recognize falls back to 200k (warns too often on big-window models) — override it yourself in `config.json` with `{"windows": {"<regex>": <tokens>}}`, no code edit needed.
 - The ahead-of-time warning needs at least 2 turns to learn the growth rate first (if it spikes hard from the very start, the percentage levels take over instead).
 - **Chips only work on clients that have `spawn_task`** (the Claude Code desktop app) — on the terminal CLI use the `/clear` + pointer path instead; same functionality, just no button. Also note a chip **always creates a new git worktree** (there's no way to turn that off), which is why the move-the-goods + prune steps exist at all.
 - **The `node_modules` move never fires in repos that commit `node_modules` to git** — a fresh worktree materializes `node_modules` at checkout, so the "destination is empty" condition is never true (deliberately safe: `Move-Item` into an existing destination silently *nests* the folder inside) → the old worktree keeps its full `node_modules` until pruned/deleted manually.
-- **Prune can't delete a worktree that's still in use** — an old session that's still open (or a dev server still running) holds the cwd, so the file deletion fails (EBUSY). The script unregisters it from git and reports it as an "orphan folder" to delete manually after closing the session — it never forces or kills processes for you.
+- **To protect a worktree from pruning → `git worktree lock <path>`** (the script always skips locked ones) or pass its name via `--keep-list` · **Prune can't delete a worktree that's still in use** — an old session that's still open (or a dev server still running) holds the cwd, so the file deletion fails (EBUSY). The script unregisters it from git and reports it as an "orphan folder" to delete manually after closing the session — it never forces or kills processes for you.
 - **The handoff summary shown at session start (`systemMessage`) renders only on the terminal CLI** — the desktop app/IDE extensions don't render it yet (as of 2026-07), and a hook can't trigger a turn by itself: the user has to send the first message before Claude starts reading the handoff.
 
 Full details in [SETUP.md](SETUP.md) · V2 design in [docs/V2-design.md](docs/V2-design.md)
 
 ---
 
-The hand-off doc is produced by Matt Pocock's `handoff` skill ([mattpocock/skills](https://github.com/mattpocock/skills)) · `vendor/handoff/` is an offline copy bundled for installs without a network connection (© Matt Pocock).
+The hand-off doc is produced by Matt Pocock's `handoff` skill ([mattpocock/skills](https://github.com/mattpocock/skills)) · `vendor/handoff/` is a pinned copy used as the primary install source (upstream is fetched only if the copy is missing — content injected into Claude's context should be a reviewed version, not a live main branch) (© Matt Pocock).

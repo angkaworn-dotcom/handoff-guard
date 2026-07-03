@@ -1,6 +1,10 @@
 # Spec: เอา chip กลับมา + คุม worktree แบบ D2 (snapshot เบา 5 อันล่าสุด)
 
 > วันที่: 2026-07-02 · สถานะ: อนุมัติ design แล้ว รอ implement
+>
+> **errata (2026-07-03 — เอกสารนี้เป็นบันทึกดีไซน์ ไม่อัปเดตย้อนหลัง · ของจริงดู SKILL.md/โค้ด):**
+> keep-list เปลี่ยนจาก const ในไฟล์ → CLI `--keep-list` / env `HANDOFF_GUARD_KEEP_LIST` (+ เคารพ `git worktree lock`) ·
+> `counters.json` ถูกถอด — เลข chip นับจากไฟล์ใน `handoffs/` ตรงๆ (กัน 2 session เขียนทับกัน)
 > ที่เก็บ spec นี้อยู่ใน `~/.claude/skills/handoff-guard/specs/` (งานนี้แก้ tooling ระดับเครื่อง ไม่เกี่ยวกับ repo โปรเจกต์ใด — โฟลเดอร์นี้ไม่ใช่ git repo จึงไม่มี commit)
 
 ## เป้าหมาย

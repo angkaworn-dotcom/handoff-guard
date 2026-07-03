@@ -1,12 +1,13 @@
 #!/usr/bin/env node
 // prune-worktrees.mjs — เก็บ snapshot worktree เบา N อันล่าสุด ลบ clean ที่เก่ากว่า (ไม่แตะ branch)
 // ใช้โดย chip session ของ handoff-guard — spec: ../specs/2026-07-02-chip-revival-d2-design.md
-// usage: node prune-worktrees.mjs --repo "<mainRepoRoot>" [--keep 5] [--dry]
+// usage: node prune-worktrees.mjs --repo "<mainRepoRoot>" [--keep 5] [--keep-list a,b] [--dry]
+// worktree ที่ห้ามลบถาวร: git worktree lock <path> (วิธีมาตรฐาน — script ข้ามตัว locked เสมอ)
+// หรือส่งชื่อผ่าน --keep-list / env HANDOFF_GUARD_KEEP_LIST (คั่น comma)
 import { execFileSync } from 'node:child_process';
 import { statSync, existsSync, rmSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 
-const KEEP_LIST = ['leave-db-redesign-feat']; // worktree งาน dev จริง — ห้ามลบเด็ดขาด
 const RECENT_DAYS = 2;
 
 const args = process.argv.slice(2);
@@ -15,10 +16,18 @@ const argVal = (name, def) => {
   return i >= 0 && args[i + 1] ? args[i + 1] : def;
 };
 const repo = argVal('--repo', '');
-const keep = Math.max(0, parseInt(argVal('--keep', '5'), 10) || 5);
+const keepRaw = parseInt(argVal('--keep', '5'), 10);
+const keep = Math.max(0, Number.isNaN(keepRaw) ? 5 : keepRaw);   // ห้ามใช้ `|| 5` — จะกลืน --keep 0
 const dry = args.includes('--dry');
+const keepList = argVal('--keep-list', process.env.HANDOFF_GUARD_KEEP_LIST || '')
+  .split(',').map((s) => s.trim()).filter(Boolean);
+// dirt ใต้ prefix พวกนี้ไม่นับเป็นงานค้าง — default node_modules/ ปลอดภัยทุก repo:
+// repo ปกติ ignore node_modules อยู่แล้ว (ไม่โผล่ใน status) · repo ที่ track node_modules
+// (git มีเนื้อไฟล์ครบ กู้ได้จาก checkout) การลบมันไม่ใช่งานที่ต้องรักษา
+const ignoreDirt = argVal('--ignore-dirt', 'node_modules/')
+  .split(',').map((s) => s.trim()).filter(Boolean);
 if (!repo || !existsSync(repo)) {
-  console.error('usage: prune-worktrees.mjs --repo <mainRepoRoot> [--keep N] [--dry]');
+  console.error('usage: prune-worktrees.mjs --repo <mainRepoRoot> [--keep N] [--keep-list a,b] [--ignore-dirt p1,p2] [--dry]');
   process.exit(1);
 }
 
@@ -40,15 +49,17 @@ for (const b of blocks) {
   const np = norm(path);
   if (!np.startsWith(wtRoot + sep)) continue; // เฉพาะใต้ .claude/worktrees
   if (np === self || self.startsWith(np + sep)) { skip('self', path); continue; }
+  // git worktree lock = สัญญาณมาตรฐานว่า "ห้ามแตะ" (session อื่นใช้อยู่ / ผู้ใช้ pin ไว้)
+  if (/^locked/m.test(b)) { skip('locked', path); continue; }
   const base = np.slice(wtRoot.length + 1).split(sep)[0];
-  if (KEEP_LIST.includes(base)) { skip('keep-list', path); continue; }
+  if (keepList.includes(base)) { skip('keep-list', path); continue; }
   if (!existsSync(path)) { skip('missing', path); continue; }
   let dirtyOut = '';
   try { dirtyOut = git(path, 'status', '--porcelain'); } catch { skip('status-error', path); continue; }
-  // dirt ใน node_modules/ ไม่นับเป็นงานค้าง — repo นี้ track node_modules ไว้ (git มีเนื้อไฟล์ครบ)
-  // เคสจริง: clean-worktree-node-modules.sh ลบ node_modules → status ขึ้น " D node_modules/..." ทั้งแผง
+  // กรอง dirt ใต้ prefix ที่ระบุ (--ignore-dirt, default node_modules/) ออกก่อนตัดสิน dirty
+  // เคสจริง: script ลบ node_modules ใน repo ที่ track มัน → status ขึ้น " D node_modules/..." ทั้งแผง
   const realDirt = dirtyOut.split(/\r?\n/).filter(Boolean)
-    .filter((l) => !l.slice(3).replace(/^"/, '').startsWith('node_modules/'));
+    .filter((l) => { const f = l.slice(3).replace(/^"/, ''); return !ignoreDirt.some((p) => f.startsWith(p)); });
   if (realDirt.length) { skip('dirty', path); continue; }
   // recency = เวลา commit ล่าสุดของ HEAD (การทำงานจริง) — dir mtime เชื่อไม่ได้
   // (clean-worktree-node-modules.sh ไปแตะ mtime ทุกโฟลเดอร์ทั้งที่ไม่มีใครทำงาน)

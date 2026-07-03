@@ -3,7 +3,7 @@
 // สร้าง transcript ปลอมที่มี usage ตามต้องการ แล้วยิง hook ดูว่า block ถูก tier ไหม + EWMA/predict + marker กันซ้ำ
 // state.json persist ข้าม run ใน session เดียว → ทดสอบ EWMA ข้ามเทิร์นได้ตรงๆ
 import { spawnSync } from 'node:child_process';
-import { writeFileSync, readFileSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { writeFileSync, readFileSync, mkdtempSync, mkdirSync, rmSync, existsSync, utimesSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -139,6 +139,71 @@ check('H 186k same session → silent (marker กันซ้ำ ก่อน co
 check('H compaction 100k → silent + re-arm', run('hg-rearm', 100000) === '');
 const h2 = parse(run('hg-rearm', 185000));                // ต้องยิงซ้ำได้ หลัง re-arm
 check('H 185k หลัง compact → tier1 ยิงซ้ำ (re-armed) ✅', h2 && h2.decision === 'block' && /tier=tier1/.test(ctxOf(h2)));
+
+// ── J. sidechain — usage ของ subagent ปนใน transcript ต้องถูกข้าม ─────────────
+// bug เดิม: อ่าน usage "ตัวสุดท้าย" ของทุกบรรทัด → sidechain (context เล็กกว่า main มาก)
+// ทำ delta ติดลบปลอม → โดนตีความเป็น compaction → EWMA/marker พังทั้งเส้น
+console.log('\n[J] sidechain (subagent usage ปนใน transcript)');
+function makeSidechainTranscript(mainTokens, sideTokens, model = 'claude-opus-4-8') {
+  const p = join(tmp, `t-side-${mainTokens}-${Math.random().toString(36).slice(2)}.jsonl`);
+  const usage = (t) => ({ input_tokens: t - 100, cache_read_input_tokens: 50, cache_creation_input_tokens: 30, output_tokens: 20 });
+  const lines = [
+    JSON.stringify({ type: 'assistant', message: { model, usage: usage(mainTokens) } }),
+    JSON.stringify({ type: 'assistant', isSidechain: true, message: { model, usage: usage(sideTokens) } }),
+    JSON.stringify({ type: 'assistant', isSidechain: true, message: { model, usage: usage(sideTokens + 500) } }),
+  ];
+  writeFileSync(p, lines.join('\n') + '\n');
+  return p;
+}
+const runPath = (sessionId, path) => spawnSync('node', [HOOK], {
+  input: JSON.stringify({ session_id: sessionId, transcript_path: path, hook_event_name: 'Stop' }),
+  encoding: 'utf8', env: cleanEnv,
+}).stdout.trim();
+const oJ = parse(runPath('hg-side', makeSidechainTranscript(185000, 8000)));
+check('J main 185k + sidechain 8k ท้ายไฟล์ → tier1 จาก 185k (ไม่หยิบ sidechain)',
+  oJ && oJ.decision === 'block' && /tier=tier1/.test(ctxOf(oJ)) && /185000/.test(ctxOf(oJ)));
+runPath('hg-side2', makeSidechainTranscript(100000, 8000));
+runPath('hg-side2', makeSidechainTranscript(110000, 8200));
+const sJ = readState('hg-side2');
+check('J EWMA คิดจาก main เท่านั้น (delta=+10k ไม่ติดลบปลอม)', sJ && sJ.ema === 10000 && sJ.lastTokens === 110000);
+
+// ── K. re-arm ต้องลบ marker ครบทุกตัว (regression — rmSync ตัวแรก throw แล้วตัวถัดไปไม่ถูกลบ) ──
+// เคสจับ bug: predict เคยยิง (มีแต่ .p ไม่มี .t1) → compaction → เดิม rmSync(m1) throw
+// ก่อนถึง rmSync(mp) → .p ค้าง → predict เงียบถาวรทั้งที่ควร re-arm
+console.log('\n[K] re-arm ลบ marker ครบ (เริ่มจาก predict marker เดี่ยว)');
+run('hg-rearm2', 160000);
+run('hg-rearm2', 171600);
+const k1 = parse(run('hg-rearm2', 183200));
+check('K predict ยิงครั้งแรก', k1 && /tier=predict/.test(ctxOf(k1)));
+check('K compaction 60k → silent + re-arm', run('hg-rearm2', 60000) === '');
+const k2 = parse(run('hg-rearm2', 183200));
+check('K predict ยิงซ้ำได้หลัง compact (.p ถูกลบจริง)', k2 && k2.decision === 'block' && /tier=predict/.test(ctxOf(k2)));
+
+// ── L. overshoot guard — เทิร์นยักษ์ตัวเดียวพาทะลุ T2 ได้ ต้องไม่รอ EWMA ปรับตัว ──
+// ใช้ α ต่ำ (0.05) ให้ EWMA นิ่งจน ETA ปกติ > K แล้วยิง delta 70k: tokens+lastDelta ≥ T2 → ETA=1
+console.log('\n[L] overshoot guard (เทิร์นยักษ์)');
+const envL = { ...cleanEnv, HANDOFF_GUARD_EMA_ALPHA: '0.05' };
+const runL = (sid, tokens) => spawnSync('node', [HOOK], {
+  input: JSON.stringify({ session_id: sid, transcript_path: makeTranscript(tokens), hook_event_name: 'Stop' }),
+  encoding: 'utf8', env: envL,
+}).stdout.trim();
+runL('hg-giant', 80000);
+check('L โต 2k/เทิร์น → silent', runL('hg-giant', 82000) === '');
+const oL = parse(runL('hg-giant', 152000));     // delta=70k: 152k+70k=222k ≥ T2=217600 · EWMA(α=.05)≈5.3k → ETA ปกติ 13
+check('L delta 70k เดียว → predict ยิงทันที etaTurns=1 (ไม่รอ EWMA)', oL && /tier=predict/.test(ctxOf(oL)) && /etaTurns=1/.test(ctxOf(oL)));
+
+// ── M. sweep — marker/state ของ session เก่าเกิน 14 วันถูกกวาดตอนเทิร์นแรกของ session ใหม่ ──
+console.log('\n[M] sweep marker/state ค้างเก่า');
+mkdirSync(markerDir, { recursive: true });
+const ancientM = join(markerDir, 'ancient.t1');
+const ancientS = join(markerDir, 'ancient.state.json');
+const freshM = join(markerDir, 'fresh.t1');
+writeFileSync(ancientM, '1'); writeFileSync(ancientS, '{}'); writeFileSync(freshM, '1');
+const past = new Date(Date.now() - 20 * 864e5);
+utimesSync(ancientM, past, past); utimesSync(ancientS, past, past);
+run('hg-sweep', 50000);   // เทิร์นแรกของ session ใหม่ = จังหวะ sweep
+check('M marker/state อายุ 20 วันถูกกวาด', !existsSync(ancientM) && !existsSync(ancientS));
+check('M marker สดไม่ถูกแตะ', existsSync(freshM));
 
 // ── I. kill switch (MAX=0 = ปิด guard ทั้งตัว) ────────────────────────────────
 console.log('\n[I] kill switch (MAX=0)');

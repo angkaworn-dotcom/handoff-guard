@@ -5,7 +5,10 @@
 // → block ไม่ให้ Claude หยุด + ฉีด instruction ให้ invoke skill "handoff-guard"
 //   เมื่อ (predict) คาดว่าใกล้เต็ม หรือ (absolute) token ทะลุ threshold เดิม (safety net)
 // กัน loop ด้วย marker ต่อ session ต่อ tier (.p / .t1 / .t2)
-import { readFileSync, mkdirSync, existsSync, writeFileSync, rmSync } from 'node:fs';
+import {
+  readFileSync, mkdirSync, existsSync, writeFileSync, rmSync,
+  openSync, readSync, closeSync, fstatSync, readdirSync, statSync,
+} from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -30,17 +33,67 @@ try {
 // fable/mythos: window จริงใหญ่มาก (spec 1M — สังเกตจริงโตทะลุ 400k โดยยังไม่ auto-compact) →
 //   ตั้ง 512k เป็นกันชนครึ่งทาง: สูงพอไม่เตือนเร็วเกิน แต่ยังเผื่อไว้เผื่อ CC compact ก่อน 1M (อยากดันสุด: pin 1000000)
 // (ไม่รู้จัก = สมมติเล็กสุด → guard ยิงเร็วดีกว่าไม่ยิงเลยบนโมเดลเพดานต่ำ)
-const windowForModel = (m) =>
-  /\[1m\]/.test(m) ? 1000000 :
-  /fable|mythos/.test(m) ? 512000 :
-  /opus/.test(m) ? 256000 : 200000;
+// pattern ข้างล่างผูกกับ format ของ message.model ที่ Anthropic เปลี่ยนได้ — ถ้าโมเดลใหม่ไม่ match
+// จะ fallback 200k (ปลอดภัยแต่เตือนถี่บนโมเดลเพดานสูง) → override ได้เองไม่ต้องแก้โค้ด:
+// config.json {"windows": {"<regex>": <tokens>, ...}} เช็คก่อน built-in ตามลำดับที่เขียน
+const windowForModel = (m) => {
+  if (fileConfig.windows && typeof fileConfig.windows === 'object') {
+    for (const [pat, tok] of Object.entries(fileConfig.windows)) {
+      try { if (new RegExp(pat, 'i').test(m) && Number(tok) > 0) return Number(tok); }
+      catch { /* pattern เสีย — ข้ามไปตัวถัดไป */ }
+    }
+  }
+  return /\[1m\]/.test(m) ? 1000000 :
+    /fable|mythos/.test(m) ? 512000 :
+    /opus/.test(m) ? 256000 : 200000;
+};
 
 const K = Number(process.env.HANDOFF_GUARD_PREDICT_TURNS || 3);     // lead time (เทิร์น) ของ predict trigger
 const ALPHA = Number(process.env.HANDOFF_GUARD_EMA_ALPHA || 0.4);   // น้ำหนัก EWMA ของ delta ล่าสุด
 const FLOOR = 500;  // rate ต่ำสุดที่ยอมใช้หาร (กัน ETA ระเบิดเป็น Infinity)
+const SWEEP_DAYS = 14;  // marker/state ของ session ที่ไม่ถูกแตะเกินนี้ → ลบทิ้ง (กันสะสมไม่จำกัด)
 
 function readStdin() {
   try { return readFileSync(0, 'utf8'); } catch { return ''; }
+}
+
+// หา usage/model ของ assistant message "ล่าสุดของ main conversation" จาก transcript JSONL
+// - อ่านจากท้ายไฟล์เป็น chunk (ขยายทีละ 4 เท่าจนเจอ) — ไม่อ่านทั้งไฟล์: transcript โตหลายสิบ MB
+//   ตอน context ใกล้เต็ม ซึ่งเป็นจังหวะที่ hook นี้ต้องเร็วที่สุด
+// - ข้าม entry ของ subagent (isSidechain) — context ของ subagent เล็กกว่า main มาก ถ้านับปน
+//   delta จะติดลบปลอม (โดนตีความเป็น compaction → re-arm marker ทิ้ง) แล้วเทิร์นถัดไป
+//   delta โตผิดจริง → EWMA พัง → predict ยิงมั่ว
+function lastMainUsage(transcript) {
+  let fd;
+  try { fd = openSync(transcript, 'r'); } catch { return null; }
+  try {
+    const size = fstatSync(fd).size;
+    let chunk = 256 * 1024;
+    for (;;) {
+      const start = Math.max(0, size - chunk);
+      const buf = Buffer.alloc(size - start);
+      readSync(fd, buf, 0, buf.length, start);
+      const lines = buf.toString('utf8').split('\n');
+      if (start > 0) lines.shift();   // บรรทัดแรกของ chunk อาจโดนตัดกลางบรรทัด — ทิ้ง
+      for (let i = lines.length - 1; i >= 0; i--) {
+        const s = lines[i].trim();
+        if (!s) continue;
+        let obj;
+        try { obj = JSON.parse(s); } catch { continue; }
+        if (obj.isSidechain) continue;
+        const u = obj && obj.message && obj.message.usage;
+        if (!u) continue;
+        return {
+          tokens: (u.input_tokens || 0) + (u.cache_read_input_tokens || 0)
+                + (u.cache_creation_input_tokens || 0) + (u.output_tokens || 0),
+          model: obj.message.model || '',
+        };
+      }
+      if (start === 0) return null;   // อ่านถึงหัวไฟล์แล้วยังไม่เจอ usage เลย
+      chunk *= 4;
+    }
+  } catch { return null; }
+  finally { try { closeSync(fd); } catch { /* ignore */ } }
 }
 
 function main() {
@@ -51,25 +104,12 @@ function main() {
   const transcript = input.transcript_path || '';
   if (!transcript || !existsSync(transcript)) process.exit(0);
 
-  // L1 — token + โมเดลปัจจุบัน = usage/model ของ assistant message ล่าสุด
+  // L1 — token + โมเดลปัจจุบัน = usage/model ของ assistant message ล่าสุด (main only)
   // (input + cache_read + cache_creation + output = ขนาด context ที่โมเดลเห็นรอบนั้น)
-  let tokens = 0;
-  let model = '';
-  try {
-    const lines = readFileSync(transcript, 'utf8').split('\n');
-    for (const line of lines) {
-      const s = line.trim();
-      if (!s) continue;
-      let obj;
-      try { obj = JSON.parse(s); } catch { continue; }
-      const u = obj && obj.message && obj.message.usage;
-      if (u) {
-        tokens = (u.input_tokens || 0) + (u.cache_read_input_tokens || 0)
-               + (u.cache_creation_input_tokens || 0) + (u.output_tokens || 0);
-        model = (obj.message.model || model);   // โมเดลของ message ที่ให้ token ล่าสุด
-      }
-    }
-  } catch { process.exit(0); }
+  const last = lastMainUsage(transcript);
+  if (!last) process.exit(0);
+  const tokens = last.tokens;
+  const model = last.model;
 
   // เพดาน/threshold — คำนวณหลังรู้โมเดล (env > config.json pin > โมเดลที่ detect > fallback)
   const MAX = Number(process.env.HANDOFF_GUARD_MAX || fileConfig.max || windowForModel(model));
@@ -89,18 +129,33 @@ function main() {
 
   if (!state || typeof state.lastTokens !== 'number') {
     // fire แรกของ session → baseline เท่านั้น ยังไม่มี delta
-    state = { lastTokens: tokens, ema: 0, turns: 1 };
+    state = { lastTokens: tokens, ema: 0, turns: 1, lastDelta: 0 };
+    // จังหวะเดียวกันนี้ (ครั้งเดียวต่อ session — ไม่เปลือง I/O ทุกเทิร์น) เก็บกวาด marker/state
+    // ของ session เก่าที่ไม่มีวันถูกลบเอง — ไม่งั้นสะสมไม่จำกัดใน .handoff-guard/
+    try {
+      for (const d of readdirSync(dir, { withFileTypes: true })) {
+        if (!d.isFile() || !/\.(t1|t2|p|state\.json)$/.test(d.name)) continue;
+        const fp = join(dir, d.name);
+        try {
+          if (Date.now() - statSync(fp).mtimeMs > SWEEP_DAYS * 864e5) rmSync(fp, { force: true });
+        } catch { /* ไฟล์หาย/ล็อก — ข้าม */ }
+      }
+    } catch { /* dir อ่านไม่ได้ — ข้าม */ }
   } else {
     const delta = tokens - state.lastTokens;
     if (delta < 0) {
       // compaction/รีเซ็ตเกิดขึ้น → ไม่นับ delta ลบ, คง ema เดิม, reset baseline
       // + re-arm: ลบ marker ที่เคยยิง เพื่อให้เตือนใหม่ได้ถ้า context โตทะลุ T1/T2 อีกรอบหลัง compact
       // (session ที่ compact แล้วโตอีก = degrade แล้ว ยิ่งต้อง hand off — ไม่งั้นเงียบถาวร)
-      try { rmSync(m1); rmSync(m2); rmSync(mp); } catch { /* marker อาจยังไม่เคยสร้าง */ }
-    } else if (!state.ema) {
-      state.ema = delta;            // delta จริงตัวแรก
+      // force: true = ไฟล์ไหนไม่มีก็ข้าม — ห้าม throw กลางคัน ไม่งั้นตัวถัดไปไม่ถูกลบ
+      rmSync(m1, { force: true });
+      rmSync(m2, { force: true });
+      rmSync(mp, { force: true });
+      state.lastDelta = 0;
     } else {
-      state.ema = ALPHA * delta + (1 - ALPHA) * state.ema;   // EWMA
+      if (!state.ema) state.ema = delta;                        // delta จริงตัวแรก
+      else state.ema = ALPHA * delta + (1 - ALPHA) * state.ema; // EWMA
+      state.lastDelta = delta;
     }
     state.lastTokens = tokens;
     state.turns = (state.turns || 0) + 1;
@@ -108,7 +163,11 @@ function main() {
   try { writeFileSync(statePath, JSON.stringify(state)); } catch { /* best effort */ }
 
   const rate = Math.max(state.ema || 0, FLOOR);
-  const etaTurns = Math.ceil((T2 - tokens) / rate);
+  let etaTurns = Math.ceil((T2 - tokens) / rate);
+  // overshoot guard: EWMA ถ่วง spike โดยตั้งใจ (กัน ETA กระตุก) แต่ทำให้มองไม่เห็น "เทิร์นยักษ์" —
+  // ถ้า delta ล่าสุดตัวเดียวก็พาทะลุ T2 ได้ในเทิร์นหน้า ให้ถือว่า ETA=1 ไม่ต้องรอ EWMA ปรับตัว
+  const overshootNext = (state.lastDelta || 0) > 0 && tokens + state.lastDelta >= T2;
+  if (overshootNext) etaTurns = Math.min(etaTurns, 1);
 
   const emit = (reason, ctx) => {
     process.stdout.write(JSON.stringify({
@@ -140,8 +199,9 @@ function main() {
     );
   }
 
-  // predict (L2) — fire ครั้งเดียวต่อ session, ก่อนถึง absolute tier, เมื่อ ema ตั้งตัวแล้ว
-  if (tokens < T1 && state.turns >= 2 && state.ema > 0 && etaTurns <= K && !existsSync(mp)) {
+  // predict (L2) — fire ครั้งเดียวต่อรอบ (marker re-arm หลัง compaction), ก่อนถึง absolute tier,
+  // เมื่อ ema ตั้งตัวแล้ว หรือ delta ล่าสุดตัวเดียวจะพาทะลุ T2 (overshoot guard)
+  if (tokens < T1 && state.turns >= 2 && ((state.ema > 0 && etaTurns <= K) || overshootNext) && !existsSync(mp)) {
     writeFileSync(mp, String(tokens));
     emit(
       `Context ~${tokens} tokens — คาดอีก ~${etaTurns} เทิร์นถึง ${T2}`,

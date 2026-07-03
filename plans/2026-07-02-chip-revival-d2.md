@@ -15,7 +15,7 @@
 ### Task 1: `prune-worktrees.mjs` (TDD ด้วย fixture repo)
 
 **Files:**
-- Create: `C:\Users\Dell\.claude\skills\handoff-guard\scripts\prune-worktrees.mjs`
+- Create: `~\.claude\skills\handoff-guard\scripts\prune-worktrees.mjs`
 - Test (throwaway): `<scratchpad>\test-prune.mjs`
 
 - [ ] **Step 1: เขียน test fixture + assertion ก่อน** — `<scratchpad>\test-prune.mjs`:
@@ -46,9 +46,9 @@ mkdirSync(WT, { recursive: true });
 
 // worktree: ชื่อ → ปรับสภาพ
 const make = (name) => git(REPO, 'worktree', 'add', join(WT, name), '-b', `br-${name}`);
-for (const n of ['old1', 'old2', 'old3', 'dirty1', 'recent1', 'leave-db-redesign-feat', 'selfwt']) make(n);
+for (const n of ['old1', 'old2', 'old3', 'dirty1', 'recent1', 'pinned-feat', 'selfwt']) make(n);
 writeFileSync(join(WT, 'dirty1', 'uncommitted.txt'), 'dirty'); // dirty
-for (const n of ['old1', 'old2', 'old3', 'dirty1', 'leave-db-redesign-feat', 'selfwt'])
+for (const n of ['old1', 'old2', 'old3', 'dirty1', 'pinned-feat', 'selfwt'])
   utimesSync(join(WT, n), old, old); // ทุกอันเก่า ยกเว้น recent1
 
 // --dry จาก cwd = selfwt, keep 1 → eligible = old1,old2,old3 (เรียง mtime เท่ากัน) → ลบ 2
@@ -64,7 +64,7 @@ const real = node(join(WT, 'selfwt'), SCRIPT, '--repo', REPO, '--keep', '1');
 console.log(real);
 const gone = ['old1', 'old2', 'old3'].filter((n) => !existsSync(join(WT, n)));
 assert(gone.length === 2, `ต้องหาย 2 อัน (หายจริง: ${gone.length})`);
-for (const n of ['dirty1', 'recent1', 'leave-db-redesign-feat', 'selfwt'])
+for (const n of ['dirty1', 'recent1', 'pinned-feat', 'selfwt'])
   assert(existsSync(join(WT, n)), `${n} ต้องยังอยู่ (guard)`);
 // branch ต้องครบทุกตัวรวมของที่ worktree โดนลบ
 const branches = git(REPO, 'branch', '--list');
@@ -89,7 +89,7 @@ import { execFileSync } from 'node:child_process';
 import { statSync, existsSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 
-const KEEP_LIST = ['leave-db-redesign-feat']; // worktree งาน dev จริง — ห้ามลบเด็ดขาด
+const KEEP_LIST = ['pinned-feat']; // worktree งาน dev จริง — ห้ามลบเด็ดขาด
 const RECENT_DAYS = 2;
 
 const args = process.argv.slice(2);
@@ -158,7 +158,7 @@ console.log(`done: kept=${Math.min(keep, candidates.length)} removed=${dry ? 0 :
 ### Task 2: SKILL.md step 4-5 + Layer 4 (ภาษาไทย — ไฟล์ functional)
 
 **Files:**
-- Modify: `C:\Users\Dell\.claude\skills\handoff-guard\SKILL.md` (step 4-5 คือบรรทัด 61-65 ฉบับปัจจุบัน + L4 บรรทัด 72)
+- Modify: `~\.claude\skills\handoff-guard\SKILL.md` (step 4-5 คือบรรทัด 61-65 ฉบับปัจจุบัน + L4 บรรทัด 72)
 
 - [ ] **Step 1: แทน step 4-5 ทั้ง block** (ตั้งแต่ `4. **บอกผู้ใช้ให้เปิด session ใหม่เอง` ถึงจบบรรทัด `5. บอกผู้ใช้ชัดเจน: ...`) ด้วย:
 
@@ -190,7 +190,7 @@ console.log(`done: kept=${Math.min(keep, candidates.length)} removed=${dry ? 0 :
 ### Task 3: SKILL.en.md mirror
 
 **Files:**
-- Modify: `C:\Users\Dell\.claude\skills\handoff-guard\SKILL.en.md` (step 4-5 = บรรทัด 54-58 ฉบับปัจจุบัน + L4 บรรทัด 65-70)
+- Modify: `~\.claude\skills\handoff-guard\SKILL.en.md` (step 4-5 = บรรทัด 54-58 ฉบับปัจจุบัน + L4 บรรทัด 65-70)
 
 - [ ] **Step 1: แทน step 4-5** ด้วยฉบับแปล:
 
@@ -222,8 +222,8 @@ console.log(`done: kept=${Math.min(keep, candidates.length)} removed=${dry ? 0 :
 ### Task 4: อัปเดต memory ไม่ให้ขัดกับของใหม่
 
 **Files:**
-- Modify: `C:\Users\Dell\.claude\projects\C--Users-Dell-Documents---------------leave-web-svelte\memory\worktree-node-modules-bloat.md`
-- Modify: `C:\Users\Dell\.claude\projects\C--Users-Dell-Documents---------------leave-web-svelte\memory\MEMORY.md` (บรรทัด index ของ memory นี้)
+- Modify: `~\.claude\projects\<project-slug>\memory\worktree-node-modules-bloat.md`
+- Modify: `~\.claude\projects\<project-slug>\memory\MEMORY.md` (บรรทัด index ของ memory นี้)
 
 - [ ] **Step 1:** เพิ่ม section ท้าย worktree-node-modules-bloat.md (ก่อน "How to apply") + แก้ประโยคเก่า:
   - แก้ description frontmatter → `...use clean-worktree-node-modules.sh to reclaim space; chip revived 2026-07-02 with D2 carry-over+prune (see handoff-guard spec)`
@@ -238,9 +238,9 @@ console.log(`done: kept=${Math.min(keep, candidates.length)} removed=${dry ? 0 :
 
 ### Task 5: รันจริงกับกองเก่า ~58 อัน (owner เคาะข้อ ก แล้ว)
 
-- [ ] **Step 1: `--dry` กับ repo จริง** — `node ~/.claude/skills/handoff-guard/scripts/prune-worktrees.mjs --repo "C:\Users\Dell\Documents\ระบบ ลง วันลา\leave-web-svelte" --keep 5 --dry`
-  Expected: would-remove ≈ 40+ · skip dirty ≈ 13 · skip keep-list = leave-db-redesign-feat · skip self = objective-williams-6800ec (cwd session นี้)
-- [ ] **Step 2: sanity check รายการ** — ไล่ดูชื่อที่จะลบ: ทุกอันอยู่ใต้ `.claude/worktrees` · ไม่มี leave-db-redesign-feat / worktree ปัจจุบัน · จำนวน skip dirty สอดคล้อง ~13
+- [ ] **Step 1: `--dry` กับ repo จริง** — `node ~/.claude/skills/handoff-guard/scripts/prune-worktrees.mjs --repo "<mainRepoRoot>" --keep 5 --dry`
+  Expected: would-remove ≈ 40+ · skip dirty ≈ 13 · skip keep-list = pinned-feat · skip self = <worktree ของ session ปัจจุบัน>
+- [ ] **Step 2: sanity check รายการ** — ไล่ดูชื่อที่จะลบ: ทุกอันอยู่ใต้ `.claude/worktrees` · ไม่มี pinned-feat / worktree ปัจจุบัน · จำนวน skip dirty สอดคล้อง ~13
 - [ ] **Step 3: วัดพื้นที่ก่อนลบ** — PowerShell: `(Get-ChildItem "<repo>\.claude\worktrees" -Directory | Measure-Object).Count` + du รวม
 - [ ] **Step 4: รันจริง** — คำสั่งเดิมตัด `--dry` → Expected: removed ≈ would-remove จาก dry, ไม่มี error ค้าง
 - [ ] **Step 5: verify หลังลบ** — จำนวน dir เหลือ ≈ 5 (snapshot) + 13 dirty + keep-list + ตัวเอง + recent · `git -C <repo> branch --list "claude/*" | measure` ต้องไม่ลดลงจากก่อนลบ · รายงานพื้นที่ที่คืนมา

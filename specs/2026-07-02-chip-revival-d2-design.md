@@ -1,6 +1,10 @@
 # Spec: เอา chip กลับมา + คุม worktree แบบ D2 (snapshot เบา 5 อันล่าสุด)
 
 > วันที่: 2026-07-02 · สถานะ: อนุมัติ design แล้ว รอ implement
+>
+> **errata (2026-07-03 — เอกสารนี้เป็นบันทึกดีไซน์ ไม่อัปเดตย้อนหลัง · ของจริงดู SKILL.md/โค้ด):**
+> keep-list เปลี่ยนจาก const ในไฟล์ → CLI `--keep-list` / env `HANDOFF_GUARD_KEEP_LIST` (+ เคารพ `git worktree lock`) ·
+> `counters.json` ถูกถอด — เลข chip นับจากไฟล์ใน `handoffs/` ตรงๆ (กัน 2 session เขียนทับกัน)
 > ที่เก็บ spec นี้อยู่ใน `~/.claude/skills/handoff-guard/specs/` (งานนี้แก้ tooling ระดับเครื่อง ไม่เกี่ยวกับ repo โปรเจกต์ใด — โฟลเดอร์นี้ไม่ใช่ git repo จึงไม่มี commit)
 
 ## เป้าหมาย
@@ -70,7 +74,7 @@
 - ขอบเขต: เฉพาะโฟลเดอร์ใต้ `<repo>/.claude/worktrees/` เท่านั้น
 - **Guard (ข้ามเสมอ ไม่มีข้อยกเว้น):**
   - cwd ปัจจุบันของ process (ห้ามลบบ้านตัวเอง)
-  - keep-list: `['leave-db-redesign-feat']` (const แก้ในไฟล์)
+  - keep-list: `['pinned-feat']` (const แก้ในไฟล์)
   - dirty: `git -C <wt> status --porcelain` มีบรรทัดที่**อยู่นอก `node_modules/`** (แก้ไขจากตอนแรก — ค้นพบตอน implement ว่า repo นี้ track node_modules ใน git และ clean script เคยลบทิ้ง ทำให้ 57 อันขึ้น dirty ทั้งที่ไม่มีงานจริงค้าง; dirt ใน node_modules = git มีเนื้อไฟล์อยู่แล้ว ไม่ใช่งาน) · การลบใช้ `git worktree remove --force` — ปลอดภัยเพราะ candidate ผ่านเช็ค realDirt ว่างแล้ว (git เองนับ node_modules หาย/ไฟล์ ignored เป็น dirty เลยต้อง force)
   - mtime ภายใน 2 วัน
 - ที่เหลือเรียง mtime ใหม่→เก่า เก็บ N อันแรก ลบที่เหลือด้วย `git -C <mainRepoRoot> worktree remove <path>` (ไม่ใช้ `--force` — git ปฏิเสธ dirty ให้อีกชั้น) · ลบ fail = log แล้วข้าม ไม่ throw

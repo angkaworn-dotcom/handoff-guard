@@ -30,7 +30,8 @@ const signals = ['HANDOFF.md', 'docs/HANDOFF.md', '.claude/session-state.md'];
 const found = signals.map((p) => join(cwd, p)).filter(existsSync);
 
 // pointer per-project ที่ handoff-guard เขียนไว้: pointers/*.json = {"cwd": "...", "handoff": "..."}
-// match แบบ prefix สองทาง — main repo ↔ worktree ใต้ .claude/worktrees/ ถือเป็นโปรเจกต์เดียวกัน
+// match: exact · session อยู่ใต้ path ของ pointer · pointer อยู่ใน .claude/worktrees/ ของ session
+// (main repo ↔ worktree ถือเป็นโปรเจกต์เดียวกัน — แต่ไม่ยอม parent-folder match ทั่วไป)
 const pointersDir = join(homedir(), '.claude', '.handoff-guard', 'pointers');
 let lastHandoff = '';
 let lastPointer = '';
@@ -46,7 +47,14 @@ try {
       const { cwd: pc, handoff } = JSON.parse(readFileSync(fp, 'utf8').replace(/^﻿/, ''));
       const pcn = norm(pc);
       if (!pcn || !handoff) continue;
-      if (!(here === pcn || here.startsWith(pcn + '/') || pcn.startsWith(here + '/'))) continue;
+      // ทิศ session-ลึกกว่า (here ใต้ pcn) ยอมทั่วไป: เปิดที่ subdir/worktree ของโปรเจกต์ pointer = เรื่องเดียวกัน
+      // ทิศ pointer-ลึกกว่า จำกัดเฉพาะ worktree ใต้ .claude/worktrees/ ของ here เท่านั้น —
+      // ถ้ายอม prefix ทั่วไป การเปิด session ที่โฟลเดอร์แม่ (เช่น ~/projects) จะ match pointer
+      // ของทุกโปรเจกต์ข้างใต้แล้วเด้ง handoff ที่ไม่เกี่ยวขึ้นมา
+      const sameProject = here === pcn
+        || here.startsWith(pcn + '/')
+        || pcn.startsWith(here + '/.claude/worktrees/');
+      if (!sameProject) continue;
       if (!existsSync(handoff)) continue; // doc ปลายทางหายแล้ว — ข้าม
       candidates.push({ handoff, mtime: st.mtimeMs, exact: here === pcn, fp });
     } catch { /* pointer เสีย — ข้าม */ }

@@ -66,7 +66,7 @@ if (canMerge) {
   }
 }
 
-// 5) dependency skill `handoff` (Matt Pocock) — ดึง upstream → fallback vendored
+// 5) dependency skill `handoff` (Matt Pocock) — ใช้ vendored ก่อน → fallback ดึง upstream
 const r = await ensureHandoff();
 console.log((r.installed ? '✅ ' : '⚠️ ') + r.message);
 

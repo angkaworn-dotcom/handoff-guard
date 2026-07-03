@@ -14,6 +14,7 @@
 | `~/.claude/.handoff-guard/<session>.state.json` | **L2 state** — `{lastTokens, ema, turns, lastDelta}` ต่อ session (hook เขียน/อ่านเอง คำนวณ EWMA ข้ามเทิร์น) · marker/state ที่ไม่ถูกแตะเกิน 14 วันถูกเก็บกวาดอัตโนมัติ |
 | `~/.claude/.handoff-guard/config.json` | **MAX/T1/T2 ที่ pin เอง** — เขียนโดย `scripts/set-max.mjs` (ผ่านคำสั่ง `/handoff-guard-max`), hook อ่านทุกเทิร์น · **pin ทุกโมเดล (override auto-detect)** · ไม่มีไฟล์ = auto-detect ตามโมเดล |
 | `~/.claude/commands/handoff-guard-max.md` | **slash command** — `/handoff-guard-max <max>` ตั้งเพดานเองโดยไม่ต้องแก้ `settings.json` |
+| `~/.claude/commands/handoff-guard-update.md` | **slash command** — `/handoff-guard-update` อัปเดต handoff-guard + skill `handoff` เป็นเวอร์ชันล่าสุด (เช็คก่อน ยืนยันแล้วค่อยอัปเดต) |
 | `~/.claude/skills/handoff-guard/scripts/prune-worktrees.mjs` | **เก็บกวาด worktree ของ chip** — session จาก chip เรียกเอง (step 3) · เก็บ 5 อันล่าสุดเป็น snapshot, ถอนทะเบียนที่เหลือ (ข้าม dirty / locked / ที่ยังถูกใช้ · pin ถาวรด้วย `git worktree lock` หรือ `--keep-list`) · **ไม่ลบ branch** |
 | `~/.claude/.handoff-guard/pointers/<slug>.json` + `handoffs/` | **pointer per-worktree** (key ด้วย path เต็ม, หมดอายุ 7 วัน) + ที่เก็บ handoff doc ถาวร (ไม่ใช้ OS temp — โดน Disk Cleanup กวาดได้) |
 
@@ -86,7 +87,7 @@ T1/T2 ก็ priority เดียวกัน (env → config → `round(MAX×0
 | predict ไวต่อ spike มาก/น้อย | env `HANDOFF_GUARD_EMA_ALPHA` (default 0.4) — สูง=react ไว แต่กระตุกตาม spike, ต่ำ=นิ่งแต่ lag |
 | auto-compact ยิงก่อน T1 (ไม่ทันเตือน) | pin เพดานต่ำลง `/handoff-guard-max <ต่ำกว่าจุด compact จริง>` — สังเกตจาก live ว่า compaction เกิดที่กี่ token |
 | รีเซ็ตการเตือนของ session | ลบ marker `~/.claude/.handoff-guard/<session_id>.{p,t1,t2}` + `.state.json` (รีเซ็ต EWMA) |
-| อัปเดต skill `handoff` (dependency) เป็นเวอร์ชันล่าสุดจาก upstream | `node ~/.claude/skills/handoff-guard/scripts/ensure-handoff.mjs --check` (ดู diff อย่างเดียว) → `--update` (เขียนทับ + สำรอง `SKILL.md.bak` · restart session) |
+| อัปเดตทุกอย่างเป็นเวอร์ชันล่าสุด (handoff-guard + skill `handoff`) | `/handoff-guard-update` ในแชท หรือ `node ~/.claude/skills/handoff-guard/scripts/update.mjs --check` (ดูอย่างเดียว) → รันโดยไม่ใส่ `--check` (อัปเดต + สำรอง `.bak` · restart session) · เฉพาะส่วนของ Matt: `ensure-handoff.mjs --check`/`--update` |
 
 ## ข้อจำกัด (ตรงไปตรงมา)
 - Stop hook fire **หลัง** Claude จบเทิร์น — ถ้าเทิร์นเดียวพุ่งทะลุหลาย tier จะ fire tier สูงสุดที่ถึง

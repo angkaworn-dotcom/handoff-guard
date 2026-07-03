@@ -29,9 +29,10 @@ copyFileSync(join(repo, 'hooks', 'context-guard.mjs'), join(hooksDir, 'context-g
 copyFileSync(join(repo, 'hooks', 'session-resume.mjs'), join(hooksDir, 'session-resume.mjs'));
 console.log('✅ hooks → ' + hooksDir);
 
-// 3) slash command
+// 3) slash commands
 copyFileSync(join(repo, 'commands', 'handoff-guard-max.md'), join(cmdDir, 'handoff-guard-max.md'));
-console.log('✅ command → ' + cmdDir);
+copyFileSync(join(repo, 'commands', 'handoff-guard-update.md'), join(cmdDir, 'handoff-guard-update.md'));
+console.log('✅ commands → ' + cmdDir);
 
 // 4) settings.json merge — idempotent, ไม่ทับ hooks เดิมของผู้ใช้ (เพิ่มเฉพาะที่ยังไม่มี)
 const settingsPath = join(claude, 'settings.json');

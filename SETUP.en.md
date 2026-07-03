@@ -14,6 +14,7 @@
 | `~/.claude/.handoff-guard/<session>.state.json` | **L2 state** — `{lastTokens, ema, turns, lastDelta}` per session (the hook reads/writes this itself, computing EWMA across turns) · markers/state untouched for over 14 days are swept automatically |
 | `~/.claude/.handoff-guard/config.json` | **Your own MAX/T1/T2** — written by `scripts/set-max.mjs` (via the `/handoff-guard-max` command), read by the hook every turn · **pins every model (overrides auto-detect)** · no file = auto-detect per model |
 | `~/.claude/commands/handoff-guard-max.md` | **slash command** — `/handoff-guard-max <max>` set your own ceiling without touching `settings.json` |
+| `~/.claude/commands/handoff-guard-update.md` | **slash command** — `/handoff-guard-update` updates handoff-guard + the `handoff` skill to the latest (checks first, updates after confirmation) |
 | `~/.claude/skills/handoff-guard/scripts/prune-worktrees.mjs` | **Chip worktree cleanup** — the chip-spawned session runs this itself (step 3) · keeps the 5 most recent as snapshots, unregisters the rest (skips dirty / locked / in-use ones · pin permanently with `git worktree lock` or `--keep-list`) · **never deletes branches** |
 | `~/.claude/.handoff-guard/pointers/<slug>.json` + `handoffs/` | **Per-worktree pointer** (keyed by full path, 7-day expiry) + permanent handoff doc storage (not OS temp — Disk Cleanup can sweep that) |
 
@@ -73,7 +74,7 @@ Covers: absolute (183k doesn't block · 185k tier1 · 218k tier2 · repeat fires
 | More/less predict sensitivity to spikes | env `HANDOFF_GUARD_EMA_ALPHA` (default 0.4) — higher = reacts faster but jumpier with spikes, lower = smoother but laggier |
 | Auto-compact fires before 184k (warning doesn't arrive in time) | Lower the threshold (e.g. 200000) — observe from live use at what token count compaction actually happens |
 | Reset a session's warning state | Delete markers `~/.claude/.handoff-guard/<session_id>.{p,t1,t2}` + `.state.json` (resets the EWMA) |
-| Update the `handoff` dependency skill to the latest upstream | `node ~/.claude/skills/handoff-guard/scripts/ensure-handoff.mjs --check` (diff only) → `--update` (overwrite + back up `SKILL.md.bak` · restart session) |
+| Update everything to the latest (handoff-guard + the `handoff` skill) | `/handoff-guard-update` in chat, or `node ~/.claude/skills/handoff-guard/scripts/update.mjs --check` (read-only) → run without `--check` (update + `.bak` backups · restart session) · Matt's part only: `ensure-handoff.mjs --check`/`--update` |
 | A new model isn't auto-detected (falls back to 200k → warns too often) | Add your own mapping in `~/.claude/.handoff-guard/config.json`: `{"windows": {"<regex>": <tokens>}}` — checked before the built-in patterns, no code edit needed |
 
 ## Limitations (honest ones)

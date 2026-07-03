@@ -73,6 +73,7 @@ Covers: absolute (183k doesn't block · 185k tier1 · 218k tier2 · repeat fires
 | More/less predict sensitivity to spikes | env `HANDOFF_GUARD_EMA_ALPHA` (default 0.4) — higher = reacts faster but jumpier with spikes, lower = smoother but laggier |
 | Auto-compact fires before 184k (warning doesn't arrive in time) | Lower the threshold (e.g. 200000) — observe from live use at what token count compaction actually happens |
 | Reset a session's warning state | Delete markers `~/.claude/.handoff-guard/<session_id>.{p,t1,t2}` + `.state.json` (resets the EWMA) |
+| Update the `handoff` dependency skill to the latest upstream | `node ~/.claude/skills/handoff-guard/scripts/ensure-handoff.mjs --check` (diff only) → `--update` (overwrite + back up `SKILL.md.bak` · restart session) |
 | A new model isn't auto-detected (falls back to 200k → warns too often) | Add your own mapping in `~/.claude/.handoff-guard/config.json`: `{"windows": {"<regex>": <tokens>}}` — checked before the built-in patterns, no code edit needed |
 
 ## Limitations (honest ones)

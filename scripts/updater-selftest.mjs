@@ -21,6 +21,7 @@ import {
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { installMap } from './update.mjs';   // mapping ตัวจริง — ตัวเดียวกับที่ production ใช้เทียบไฟล์
 
 const HERE = dirname(fileURLToPath(import.meta.url));      // repo/scripts (ตัวจริงที่กำลังทดสอบ)
 const REAL_INSTALL = join(HERE, 'install.mjs');
@@ -36,17 +37,6 @@ const check = (name, cond) => {
 // ── helpers ────────────────────────────────────────────────────────────────
 const toLF = (s) => s.replace(/\r\n/g, '\n');
 const toCRLF = (s) => toLF(s).replace(/\n/g, '\r\n');
-
-// เดินไฟล์ recursive คืน path relative (ล้อ walk() ใน update.mjs)
-function walk(dir, base = dir) {
-  const out = [];
-  for (const d of readdirSync(dir, { withFileTypes: true })) {
-    const p = join(dir, d.name);
-    if (d.isDirectory()) out.push(...walk(p, base));
-    else out.push(p.slice(base.length + 1));
-  }
-  return out;
-}
 
 // เนื้อ fixture (LF ทั้งหมด — เลียน tarball GitHub) · SKILL.md ต้องมี `name: handoff-guard`
 // (update.mjs sanity-check ก่อนรัน installer) · vendor/handoff/SKILL.md ต้องมี `name: handoff`
@@ -83,28 +73,11 @@ function buildFixture(work) {
   return { dir, tgz };
 }
 
-// mapped pairs (src fixture → dest ในบ้านปลอม) — mirror installMap() ของ update.mjs เป๊ะ
+// mapped pairs (src fixture → dest ในบ้านปลอม) — ใช้ installMap() ตัวจริงจาก update.mjs
+// (เคย mirror ด้วยมือแล้วเสี่ยง drift เงียบ: กติกาใน production เปลี่ยนแต่ test seed แบบเก่า)
 function mappedPairs(fixtureDir, fakeHome) {
-  const skillDir = join(fakeHome, '.claude', 'skills', 'handoff-guard');
-  const hooksDir = join(fakeHome, '.claude', 'hooks');
-  const cmdDir = join(fakeHome, '.claude', 'commands');
-  const pairs = [
-    { src: join(fixtureDir, 'SKILL.md'), dest: join(skillDir, 'SKILL.md') },
-    { src: join(fixtureDir, 'SETUP.md'), dest: join(skillDir, 'SETUP.md') },
-    { src: join(fixtureDir, 'hooks', 'context-guard.mjs'), dest: join(hooksDir, 'context-guard.mjs') },
-    { src: join(fixtureDir, 'hooks', 'session-resume.mjs'), dest: join(hooksDir, 'session-resume.mjs') },
-  ];
-  for (const sub of ['scripts', 'vendor']) {
-    const d = join(fixtureDir, sub);
-    if (existsSync(d)) for (const rel of walk(d)) pairs.push({ src: join(d, rel), dest: join(skillDir, sub, rel) });
-  }
-  const cd = join(fixtureDir, 'commands');
-  if (existsSync(cd)) {
-    for (const f of readdirSync(cd)) {
-      if (f.endsWith('.md') && !f.endsWith('.en.md')) pairs.push({ src: join(cd, f), dest: join(cmdDir, f) });
-    }
-  }
-  return pairs;
+  return installMap(fixtureDir, join(fakeHome, '.claude'))
+    .map(([srcRel, dest]) => ({ src: join(fixtureDir, srcRel), dest }));
 }
 
 // วางสำเนา "installed" ในบ้านปลอมเป็น CRLF (เลียน core.autocrlf=true บน Windows)
@@ -121,8 +94,9 @@ function seedInstalled(fakeHome, fixtureDir, { mutateRel = null } = {}) {
 function runNode(script, args, { home, extraEnv = {} }) {
   const env = { ...process.env, USERPROFILE: home, HOME: home, ...extraEnv };
   // strip HANDOFF_GUARD_* ของเครื่องจริงที่อาจ leak (ยกเว้นที่ extraEnv ตั้งเอง)
+  // ต้อง case-insensitive: env key บน Windows ไม่แยก case — ตัวพิมพ์ผสมหลุดเข้า child ได้
   for (const k of Object.keys(env)) {
-    if (/^HANDOFF_GUARD_/.test(k) && !(k in extraEnv)) delete env[k];
+    if (/^HANDOFF_GUARD_/i.test(k) && !(k in extraEnv)) delete env[k];
   }
   const r = spawnSync(process.execPath, [script, ...args], { encoding: 'utf8', env });
   return { status: r.status, out: (r.stdout || '') + (r.stderr || '') };
@@ -131,9 +105,10 @@ function runNode(script, args, { home, extraEnv = {} }) {
 // ── mock server: /repo.tgz (tarball) + /handoff-SKILL.md (upstream ของ skill handoff) ──
 // สำคัญ: ต้องรันใน Worker (คนละ event loop) — spawnSync บล็อก event loop ของ main thread
 // ถ้า server อยู่ main thread เดียวกัน มันจะ accept request ไม่ได้ตอน child กำลัง fetch = deadlock จน timeout
+// ทุกอย่าง (fixture + บ้านปลอมทุกหลัง) อยู่ใต้ ROOT ก้อนเดียว → finally กวาดทีเดียวครบ
+// แม้ section ไหน throw กลางคัน — ไม่ทิ้ง temp dir ค้างใน %TEMP% สะสมข้ามรอบ debug
 const ROOT = mkdtempSync(join(tmpdir(), 'hg-upd-'));
-const fx = buildFixture(join(ROOT, 'fixture'));
-const tgzBytes = readFileSync(fx.tgz);
+let worker;
 
 const WORKER_SRC = `
   const http = require('node:http');
@@ -147,19 +122,32 @@ const WORKER_SRC = `
   });
   server.listen(0, '127.0.0.1', () => parentPort.postMessage(server.address().port));
 `;
-const worker = new Worker(WORKER_SRC, { eval: true, workerData: { tgz: tgzBytes, upstream: HANDOFF_UPSTREAM } });
-const PORT = await new Promise((resolve) => worker.once('message', resolve));
-const TARBALL_URL = `http://127.0.0.1:${PORT}/repo.tgz`;
-const RAW_URL = `http://127.0.0.1:${PORT}/handoff-SKILL.md`;
-const netEnv = { HANDOFF_GUARD_SELF_TARBALL: TARBALL_URL, HANDOFF_GUARD_HANDOFF_RAW: RAW_URL };
-
 console.log('updater self-test — hermetic (fakeHome + mock http, ไม่แตะ ~/.claude จริง/เน็ต)');
 
 try {
+  const fx = buildFixture(join(ROOT, 'fixture'));
+  const tgzBytes = readFileSync(fx.tgz);
+  worker = new Worker(WORKER_SRC, { eval: true, workerData: { tgz: tgzBytes, upstream: HANDOFF_UPSTREAM } });
+  const PORT = await new Promise((resolve, reject) => {
+    worker.once('message', resolve);
+    worker.once('error', reject);   // eval/listen พัง → fail ดังๆ ไม่ค้างรอ message ที่ไม่มีวันมา
+    worker.once('exit', (code) => reject(new Error('mock worker exit ก่อนพร้อม (code ' + code + ')')));
+  });
+  const TARBALL_URL = `http://127.0.0.1:${PORT}/repo.tgz`;
+  const RAW_URL = `http://127.0.0.1:${PORT}/handoff-SKILL.md`;
+  const netEnv = { HANDOFF_GUARD_SELF_TARBALL: TARBALL_URL, HANDOFF_GUARD_HANDOFF_RAW: RAW_URL };
+  // สำหรับ section ที่ "ต้องไม่แตะเน็ตเลย" — ชี้ URL ไปปลายทาง 404 ของ mock:
+  // ถ้าโค้ดแอบไป fetch (เช่น vendored พังแล้ว fallback upstream) จะ fail ดังๆ แทนที่
+  // เน็ตจริงจะซ่อม regression ให้เงียบๆ (online) หรือแขวนรอ timeout (offline)
+  const offlineEnv = {
+    HANDOFF_GUARD_SELF_TARBALL: `http://127.0.0.1:${PORT}/offline-404`,
+    HANDOFF_GUARD_HANDOFF_RAW: `http://127.0.0.1:${PORT}/offline-404`,
+  };
+
   // ── A. install.mjs — ติดตั้งสดจาก repo จริง (worktree) ลงบ้านปลอม ──────────────
   console.log('\n[A] install.mjs (fresh install จาก repo จริง)');
-  const homeA = mkdtempSync(join(tmpdir(), 'hg-homeA-'));
-  const rA = runNode(REAL_INSTALL, [], { home: homeA });
+  const homeA = mkdtempSync(join(ROOT, 'homeA-'));
+  const rA = runNode(REAL_INSTALL, [], { home: homeA, extraEnv: offlineEnv });
   const skillA = join(homeA, '.claude', 'skills', 'handoff-guard');
   check('A exit 0', rA.status === 0);
   check('A skill SKILL.md ถูกก็อป', existsSync(join(skillA, 'SKILL.md')));
@@ -173,40 +161,43 @@ try {
   check('A dependency skill handoff ถูกติดตั้ง (vendored)', existsSync(join(homeA, '.claude', 'skills', 'handoff', 'SKILL.md')));
 
   // idempotent — รันซ้ำไม่ error, ไม่เพิ่ม hook ซ้ำ
-  const rA2 = runNode(REAL_INSTALL, [], { home: homeA });
+  const rA2 = runNode(REAL_INSTALL, [], { home: homeA, extraEnv: offlineEnv });
   check('A rerun exit 0 (idempotent)', rA2.status === 0);
   check('A rerun ไม่เพิ่ม hook ซ้ำ (settings ครบแล้ว)', /ครบแล้ว/.test(rA2.out));
   check('A rerun handoff already installed', /already installed/.test(rA2.out));
-  const hooksArr = JSON.parse(readFileSync(settingsA, 'utf8')).hooks?.Stop || [];
+  // settings หาย/JSON พัง = install regression → ต้องนับเป็น FAIL ไม่ใช่ crash ทั้ง suite
+  let hooksArr = [];
+  try { hooksArr = JSON.parse(readFileSync(settingsA, 'utf8')).hooks?.Stop || []; } catch { /* guardCount=0 → FAIL ข้อถัดไป */ }
   const guardCount = JSON.stringify(hooksArr).match(/context-guard\.mjs/g)?.length || 0;
   check('A hook context-guard มีชุดเดียว (ไม่ทับซ้อน)', guardCount === 1);
-  rmSync(homeA, { recursive: true, force: true });
 
   // ── B. update --check: installed=CRLF vs tarball=LF, เนื้อเดียวกัน → "ตรงล่าสุด" ──
   // regression #6 (tar extract สำเร็จบน tmp path C:\...) + #7 (CRLF≡LF ไม่ใช่ false-positive)
   console.log('\n[B] update --check · CRLF installed ≡ LF tarball → ไม่มีอะไรเปลี่ยน (#6 + #7)');
-  const homeB = mkdtempSync(join(tmpdir(), 'hg-homeB-'));
+  const homeB = mkdtempSync(join(ROOT, 'homeB-'));
   seedInstalled(homeB, fx.dir);   // ทุกไฟล์ CRLF, เนื้อตรงกับ fixture
   const rB = runNode(REAL_UPDATE, ['--check'], { home: homeB, extraEnv: netEnv });
   check('B exit 0 (tar extract บน C:\\ tmp สำเร็จ — #6)', rB.status === 0);
   check('B รายงาน "ตรงกับ repo ล่าสุดอยู่แล้ว" (CRLF≡LF — #7)', /ตรงกับ repo ล่าสุดอยู่แล้ว/.test(rB.out));
   check('B ไม่ false-positive ว่ามีไฟล์เปลี่ยน', !/มีไฟล์ใหม่\/เปลี่ยน/.test(rB.out));
-  rmSync(homeB, { recursive: true, force: true });
 
   // ── C. update --check: ไฟล์หนึ่งต่างเนื้อจริง → detect "เปลี่ยน" ──────────────────
   console.log('\n[C] update --check · เนื้อต่างจริง 1 ไฟล์ → detect เปลี่ยน (#3)');
-  const homeC = mkdtempSync(join(tmpdir(), 'hg-homeC-'));
+  const homeC = mkdtempSync(join(ROOT, 'homeC-'));
   seedInstalled(homeC, fx.dir, { mutateRel: join('handoff-guard', 'SETUP.md') });
   const rC = runNode(REAL_UPDATE, ['--check'], { home: homeC, extraEnv: netEnv });
   check('C exit 0', rC.status === 0);
   check('C รายงาน "มีไฟล์ใหม่/เปลี่ยน"', /มีไฟล์ใหม่\/เปลี่ยน/.test(rC.out));
   check('C ระบุ SETUP.md เป็นไฟล์ที่เปลี่ยน', /·\s*SETUP\.md/.test(rC.out));
-  check('C --check ไม่เขียนทับ (ยังไม่รัน installer)', /--check.*ยังไม่เขียน|ยังไม่เขียน/.test(rC.out));
-  rmSync(homeC, { recursive: true, force: true });
+  check('C --check รายงานว่ายังไม่เขียน', /ยังไม่เขียน/.test(rC.out));
+  // อ่านไฟล์กลับจริง — กัน regression ที่พิมพ์ข้อความ --check ถูกแต่แอบรัน installer ทับ
+  const seededC = join(homeC, '.claude', 'skills', 'handoff-guard', 'SETUP.md');
+  check('C --check ไฟล์ที่ seed ไว้ยังคงเดิม (อ่านกลับ)',
+    existsSync(seededC) && /DIVERGENT REAL CHANGE/.test(readFileSync(seededC, 'utf8')));
 
   // ── D. update (ไม่มี --check): บ้านว่าง → ดึง→extract→รัน installer→ติดตั้ง handoff จาก mock upstream ─
   console.log('\n[D] update full · บ้านว่าง → apply update end-to-end (#6 + install pipeline)');
-  const homeD = mkdtempSync(join(tmpdir(), 'hg-homeD-'));
+  const homeD = mkdtempSync(join(ROOT, 'homeD-'));
   const rD = runNode(REAL_UPDATE, [], { home: homeD, extraEnv: netEnv });
   const skillD = join(homeD, '.claude', 'skills', 'handoff-guard');
   check('D exit 0', rD.status === 0);
@@ -215,11 +206,10 @@ try {
   check('D hook ถูกติดตั้งจาก update', existsSync(join(homeD, '.claude', 'hooks', 'context-guard.mjs')));
   check('D skill handoff ถูกติดตั้ง (จาก mock upstream/vendored)', existsSync(join(homeD, '.claude', 'skills', 'handoff', 'SKILL.md')));
   check('D จบด้วยข้อความ restart', /restart Claude Code session/.test(rD.out));
-  rmSync(homeD, { recursive: true, force: true });
 
   // ── E. ensure-handoff --check เดี่ยว: mock upstream ต่างจาก installed → รายงาน "มีเวอร์ชันใหม่" ──
   console.log('\n[E] ensure-handoff --check เดี่ยว (mock upstream)');
-  const homeE = mkdtempSync(join(tmpdir(), 'hg-homeE-'));
+  const homeE = mkdtempSync(join(ROOT, 'homeE-'));
   // ติดตั้ง handoff รุ่นเก่าไว้ก่อน (เนื้อต่างจาก mock upstream)
   const hSkill = join(homeE, '.claude', 'skills', 'handoff', 'SKILL.md');
   mkdirSync(dirname(hSkill), { recursive: true });
@@ -228,9 +218,19 @@ try {
   check('E exit 0', rE.status === 0);
   check('E รายงาน upstream มีเวอร์ชันใหม่', /upstream มีเวอร์ชันใหม่/.test(rE.out));
   check('E --check ไม่เขียนทับไฟล์เดิม', /OLD installed body/.test(readFileSync(hSkill, 'utf8')));
-  rmSync(homeE, { recursive: true, force: true });
+
+  // ── F. ensure-handoff --check: installed=CRLF ≡ upstream=LF → ไม่ false-positive (#7 ฝั่ง handoff) ──
+  console.log('\n[F] ensure-handoff --check · CRLF installed ≡ LF upstream → ตรงกันแล้ว (#7)');
+  const homeF = mkdtempSync(join(ROOT, 'homeF-'));
+  const hSkillF = join(homeF, '.claude', 'skills', 'handoff', 'SKILL.md');
+  mkdirSync(dirname(hSkillF), { recursive: true });
+  writeFileSync(hSkillF, toCRLF(HANDOFF_UPSTREAM));   // เนื้อเดียวกับ mock upstream แต่เป็น CRLF
+  const rF = runNode(REAL_ENSURE, ['--check'], { home: homeF, extraEnv: netEnv });
+  check('F exit 0', rF.status === 0);
+  check('F รายงาน "ตรงกับ upstream ล่าสุดอยู่แล้ว" (CRLF≡LF)', /ตรงกับ upstream ล่าสุดอยู่แล้ว/.test(rF.out));
+  check('F ไม่ false-positive ว่ามีเวอร์ชันใหม่', !/upstream มีเวอร์ชันใหม่/.test(rF.out));
 } finally {
-  await worker.terminate();
+  if (worker) await worker.terminate();
   rmSync(ROOT, { recursive: true, force: true });
 }
 

@@ -69,9 +69,14 @@ Paths in `settings.json` must be absolute:
 
 ## Verify
 
+Run both self-test suites (the first covers the context-warning hook · the second covers the install/update pipeline — both must pass):
+
 ```bash
-node ~/.claude/skills/handoff-guard/scripts/selftest.mjs   # should print ALL PASS (47 cases)
+node ~/.claude/skills/handoff-guard/scripts/selftest.mjs   # context-guard hook — should print ALL PASS (47 cases)
+node <repo path>/scripts/updater-selftest.mjs              # install/update pipeline — should print ALL PASS (32 cases) · run from a repo checkout only
 ```
+
+> `updater-selftest.mjs` must be run from a **repo checkout** (clone/worktree), not from the installed copy under `~/.claude` — it tests installing from the real repo, so it needs the full repo layout including `hooks/` and `commands/`.
 
 To try the real thing: temporarily set `HANDOFF_GUARD_THRESHOLD=1` and type any sentence — Claude should get stopped and bounce straight to the hand-off flow. When you're done, `unset HANDOFF_GUARD_THRESHOLD` (back to auto) and delete the marker files in `~/.claude/.handoff-guard/` (`*.p`, `*.t1`, `*.t2`, `*.state.json`).
 

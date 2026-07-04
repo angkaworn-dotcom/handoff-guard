@@ -53,11 +53,13 @@ Every turn the hook computes `delta = tokens - lastTokens` → updates the **EWM
 
 ## Verify
 
-**1. Deterministic script test** (no need to wait for a session to grow) — see `scripts/selftest.mjs`:
+**1. Deterministic script tests** (no need to wait for a session to grow) — there are **two suites; both must pass**:
 ```
-node ~/.claude/skills/handoff-guard/scripts/selftest.mjs
+node ~/.claude/skills/handoff-guard/scripts/selftest.mjs    # ALL PASS (47 cases)
+node <repo>/scripts/updater-selftest.mjs                    # ALL PASS (32 cases) — run from a repo checkout only
 ```
-Covers: absolute (183k doesn't block · 185k tier1 · 218k tier2 · repeat fires stay silent) + **predict** (steady growth → fires at ETA≤K before 184k · cold-start turns<2 doesn't fire · a single spike doesn't make the ETA jump · compaction with a negative delta doesn't break) + subagent **sidechain** entries are skipped (EWMA stays intact) + **re-arm** removes every marker after compaction + **overshoot guard** fires predict immediately on a giant turn + **sweep** clears markers/state older than 14 days + per-model ceilings + kill switch
+- `selftest.mjs` covers the hook: absolute (183k doesn't block · 185k tier1 · 218k tier2 · repeat fires stay silent) + **predict** (steady growth → fires at ETA≤K before 184k · cold-start turns<2 doesn't fire · a single spike doesn't make the ETA jump · compaction with a negative delta doesn't break) + subagent **sidechain** entries are skipped (EWMA stays intact) + **re-arm** removes every marker after compaction + **overshoot guard** fires predict immediately on a giant turn + **sweep** clears markers/state older than 14 days + per-model ceilings + kill switch
+- `updater-selftest.mjs` covers the install/update pipeline (hermetic — fakeHome + mock GitHub; never touches the real `~/.claude` or the network): fresh install + idempotency · `update --check` doesn't false-positive on CRLF≡LF (#7) · tar extract on a `C:\` path (#6) · detects a real content change and `--check` doesn't overwrite (verified by reading the file back) · full end-to-end update · `ensure-handoff --check` for both the new-version and the CRLF≡LF cases. **Run it from a repo checkout** (clone/worktree) — it tests installing from the real repo layout; the installed copy under `~/.claude` lacks `hooks/` and `commands/`.
 
 **2. Live test** (proves that `decision:block` actually wakes Claude up in this version):
 - Temporarily set `HANDOFF_GUARD_THRESHOLD=1` (env, or edit the default) → say any one sentence → Claude should get "blocked" and immediately bounce to invoking `handoff-guard`

@@ -59,6 +59,12 @@ function diffText(oldTxt, newTxt) {
   }
 }
 
+// เทียบแบบ line-ending-agnostic (\r\n → \n) — ล้อ sameFile ของ update.mjs (#7):
+// installed copy อาจเป็น CRLF (ก็อปจาก working tree ที่ checkout ด้วย core.autocrlf=true
+// ก่อนยุค .gitattributes) แต่ upstream raw.githubusercontent.com เป็น LF เสมอ
+// เทียบ byte ตรงๆ จะรายงาน "มีเวอร์ชันใหม่" ปลอมทุก --check ทั้งที่เนื้อเดียวกัน
+const normEol = (s) => s.replace(/\r\n/g, '\n');
+
 // คืนค่า { changed: boolean, diff: string, message: string } · write=false = --check (ไม่เขียนอะไร)
 export async function updateHandoff({ write } = { write: false }) {
   const target = join(homedir(), '.claude', 'skills', 'handoff');
@@ -66,7 +72,7 @@ export async function updateHandoff({ write } = { write: false }) {
   const latest = await fetchUpstream();
   const current = existsSync(targetSkill) ? readFileSync(targetSkill, 'utf8') : null;
 
-  if (current === latest) {
+  if (current !== null && normEol(current) === normEol(latest)) {
     return { changed: false, diff: '', message: 'handoff: ตรงกับ upstream ล่าสุดอยู่แล้ว ✅' };
   }
   const diff = diffText(current ?? '', latest);

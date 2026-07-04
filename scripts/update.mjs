@@ -8,17 +8,15 @@
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
 
 // env override มีไว้ให้ test ชี้ mock server เท่านั้น — ใช้งานจริงคง URL ตายตัว
 const TARBALL = process.env.HANDOFF_GUARD_SELF_TARBALL
   || 'https://codeload.github.com/angkaworn-dotcom/handoff-guard/tar.gz/refs/heads/main';
 
-const checkOnly = process.argv.includes('--check');
 const claude = join(homedir(), '.claude');
 const skillDir = join(claude, 'skills', 'handoff-guard');
-const hooksDir = join(claude, 'hooks');
-const cmdDir = join(claude, 'commands');
 
 async function downloadTarball(dest) {
   const ctrl = new AbortController();
@@ -33,7 +31,8 @@ async function downloadTarball(dest) {
 }
 
 // เดินไฟล์ทุกตัวใต้ dir (recursive) — คืน path แบบ relative
-function walk(dir, base = dir) {
+// export ให้ updater-selftest.mjs ใช้ตัวเดียวกัน — ห้าม copy ไป mirror (เคยมีสำเนามือแล้ว drift เงียบ)
+export function walk(dir, base = dir) {
   const out = [];
   for (const d of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, d.name);
@@ -53,26 +52,34 @@ const sameFile = (a, b) => {
 };
 
 // รายการ (ไฟล์ใน repo → ที่ติดตั้งจริง) — ล้อโครงของ scripts/install.mjs
-function installMap(repoDir) {
+// claudeRoot เป็น param เพื่อให้ updater-selftest.mjs ชี้บ้านปลอมได้โดยใช้ mapping ตัวจริง (ไม่ mirror)
+export function installMap(repoDir, claudeRoot = claude) {
+  const sDir = join(claudeRoot, 'skills', 'handoff-guard');
+  const hDir = join(claudeRoot, 'hooks');
+  const cDir = join(claudeRoot, 'commands');
   const map = [
-    ['SKILL.md', join(skillDir, 'SKILL.md')],
-    ['SETUP.md', join(skillDir, 'SETUP.md')],
-    [join('hooks', 'context-guard.mjs'), join(hooksDir, 'context-guard.mjs')],
-    [join('hooks', 'session-resume.mjs'), join(hooksDir, 'session-resume.mjs')],
+    ['SKILL.md', join(sDir, 'SKILL.md')],
+    ['SETUP.md', join(sDir, 'SETUP.md')],
+    [join('hooks', 'context-guard.mjs'), join(hDir, 'context-guard.mjs')],
+    [join('hooks', 'session-resume.mjs'), join(hDir, 'session-resume.mjs')],
   ];
   for (const sub of ['scripts', 'vendor']) {
     const d = join(repoDir, sub);
-    if (existsSync(d)) for (const f of walk(d)) map.push([join(sub, f), join(skillDir, sub, f)]);
+    if (existsSync(d)) for (const f of walk(d)) map.push([join(sub, f), join(sDir, sub, f)]);
   }
   const cd = join(repoDir, 'commands');
   if (existsSync(cd)) {
     for (const f of readdirSync(cd)) {
-      if (f.endsWith('.md') && !f.endsWith('.en.md')) map.push([join('commands', f), join(cmdDir, f)]);
+      if (f.endsWith('.md') && !f.endsWith('.en.md')) map.push([join('commands', f), join(cDir, f)]);
     }
   }
   return map;
 }
 
+// รันเฉพาะตอนเรียกตรงจาก CLI — ตอนถูก import (โดย updater-selftest.mjs) ต้องไม่ยิงเน็ต/ไม่ exit
+const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isMain) {
+const checkOnly = process.argv.includes('--check');
 let fail = false;
 const tmp = mkdtempSync(join(tmpdir(), 'hg-update-'));
 try {
@@ -126,3 +133,4 @@ try {
   rmSync(tmp, { recursive: true, force: true });
 }
 process.exit(fail ? 1 : 0);
+}

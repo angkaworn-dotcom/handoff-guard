@@ -75,7 +75,10 @@ try {
   console.log('── handoff-guard (repo main) ──');
   const tgz = join(tmp, 'repo.tgz');
   await downloadTarball(tgz);
-  execFileSync('tar', ['-xzf', tgz, '-C', tmp]);   // Windows 10+/macOS/Linux มี tar ในตัว
+  // รัน tar โดยตั้ง cwd=tmp + ส่ง archive เป็น basename (ไม่มี drive colon) — กัน GNU tar
+  // ตีความ path แบบ "C:\..." เป็น remote host (host:path ของ rsh) แล้วพัง "Cannot connect to C:"
+  // แบบนี้ทนทั้ง GNU tar และ bsdtar โดยไม่ต้องพึ่ง --force-local · Windows 10+/macOS/Linux มี tar ในตัว
+  execFileSync('tar', ['-xzf', 'repo.tgz'], { cwd: tmp });
   const inner = readdirSync(tmp, { withFileTypes: true }).find((d) => d.isDirectory());
   if (!inner) throw new Error('tarball ว่าง');
   const repoDir = join(tmp, inner.name);

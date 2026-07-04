@@ -5,10 +5,10 @@
 //   node update.mjs           อัปเดตทั้งสองส่วน: ดึง repo ล่าสุด → รัน installer ของเวอร์ชันใหม่ → ดึง handoff ล่าสุด
 // การอัปเดตเป็นคำสั่งที่ผู้ใช้สั่งเองเสมอ (ผ่าน CLI หรือ /handoff-guard-update) — ไม่มี auto-pull เงียบๆ
 // หมายเหตุ: ไฟล์นี้จะถูกเขียนทับระหว่างอัปเดตตัวเอง — ปลอดภัยเพราะ Node โหลดทั้งไฟล์เข้า memory ก่อนรัน
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync, realpathSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
-import { pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
 
 // env override มีไว้ให้ test ชี้ mock server เท่านั้น — ใช้งานจริงคง URL ตายตัว
@@ -31,8 +31,8 @@ async function downloadTarball(dest) {
 }
 
 // เดินไฟล์ทุกตัวใต้ dir (recursive) — คืน path แบบ relative
-// export ให้ updater-selftest.mjs ใช้ตัวเดียวกัน — ห้าม copy ไป mirror (เคยมีสำเนามือแล้ว drift เงียบ)
-export function walk(dir, base = dir) {
+// ใช้ภายในไฟล์นี้เท่านั้น (installMap เรียก) — ตัวนอกอย่าง install.mjs/selftest import installMap ไม่ใช่ walk
+function walk(dir, base = dir) {
   const out = [];
   for (const d of readdirSync(dir, { withFileTypes: true })) {
     const p = join(dir, d.name);
@@ -42,13 +42,14 @@ export function walk(dir, base = dir) {
   return out;
 }
 
-// เทียบเนื้อหาแบบ line-ending-agnostic (\r\n → \n) — บน Windows ที่ core.autocrlf=true
-// installed copy เป็น CRLF (install.mjs ก็อปจาก working tree) แต่ tarball จาก GitHub เป็น LF
-// ถ้าเทียบ byte ตรงๆ จะตีว่า "ต่าง" ทุกไฟล์ที่มีขึ้นบรรทัด = false positive ว่ามีอัปเดตตลอด
-// (ไฟล์ใน installMap เป็น text ล้วน — .md/.mjs — normalize ปลอดภัย)
-const norm = (buf) => buf.toString('utf8').replace(/\r\n/g, '\n');
+// normalize ข้อความให้เทียบแบบ line-ending-agnostic + ตัด BOM หัวไฟล์ทิ้ง:
+//  - strip leading UTF-8 BOM (U+FEFF) — บางเครื่องมือ/editor ใส่ BOM ให้ .md แต่ tarball GitHub ไม่มี
+//  - \r\n → \n — บน Windows ที่ core.autocrlf=true installed copy เป็น CRLF แต่ tarball เป็น LF
+// ถ้าเทียบ byte ตรงๆ จะตีว่า "ต่าง" ทุกไฟล์ที่มี BOM/ขึ้นบรรทัด = false positive ว่ามีอัปเดตตลอด
+// ตัวเดียวใช้ร่วมทั้ง repo: sameFile ที่นี่ + ensure-handoff.mjs import ไปใช้ (ไฟล์ text ล้วน — normalize ปลอดภัย)
+export const normEol = (s) => s.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
 const sameFile = (a, b) => {
-  try { return norm(readFileSync(a)) === norm(readFileSync(b)); } catch { return false; }
+  try { return normEol(readFileSync(a, 'utf8')) === normEol(readFileSync(b, 'utf8')); } catch { return false; }
 };
 
 // รายการ (ไฟล์ใน repo → ที่ติดตั้งจริง) — ล้อโครงของ scripts/install.mjs
@@ -76,9 +77,18 @@ export function installMap(repoDir, claudeRoot = claude) {
   return map;
 }
 
+// เทียบว่าไฟล์นี้ถูกเรียกตรงจาก CLI หรือไม่ — ด้วย realpath ทั้งสองฝั่ง:
+// Node realpath ทาง ESM entry ให้อยู่แล้ว ถ้าเทียบ metaUrl กับ argv[1] ดิบๆ (ผ่าน pathToFileURL)
+// การรันผ่าน junction/symlink จะได้ false → CLI เงียบ exit 0 (สังเกตจริงบน Windows junction)
+// realpathSync สองฝั่งให้ตรงกันจึงทำงานถูกไม่ว่าจะเรียกผ่าน link ใด · argv[1] undefined/error → false
+export function isMainModule(metaUrl) {
+  try {
+    return !!process.argv[1] && realpathSync(fileURLToPath(metaUrl)) === realpathSync(process.argv[1]);
+  } catch { return false; }
+}
+
 // รันเฉพาะตอนเรียกตรงจาก CLI — ตอนถูก import (โดย updater-selftest.mjs) ต้องไม่ยิงเน็ต/ไม่ exit
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
-if (isMain) {
+if (isMainModule(import.meta.url)) {
 const checkOnly = process.argv.includes('--check');
 let fail = false;
 const tmp = mkdtempSync(join(tmpdir(), 'hg-update-'));
@@ -117,8 +127,9 @@ try {
 
   // ── ส่วนที่ 2: skill `handoff` ของ Matt ─────────────────────────────────────
   console.log('\n── skill handoff (Matt Pocock upstream) ──');
-  // ใช้ตัวที่เพิ่งติดตั้ง (เวอร์ชันล่าสุด) ถ้ามี — ตกมาใช้ตัวข้างๆ ไฟล์นี้ตอนยังไม่ได้ติดตั้ง
-  const eh = [join(skillDir, 'scripts', 'ensure-handoff.mjs'), join(repoDir, 'scripts', 'ensure-handoff.mjs')]
+  // ใช้ตัวจาก repoDir ก่อน (= ตัวที่เพิ่งดาวน์โหลดล่าสุด ทั้งโหมด --check และ full-update) —
+  // ตกมาใช้ตัวที่ติดตั้งไว้เดิมเฉพาะกรณี tarball ไม่มี (ไม่ควรเกิด) · repoDir คือของใหม่เสมอ ไม่ใช่ตัว stale
+  const eh = [join(repoDir, 'scripts', 'ensure-handoff.mjs'), join(skillDir, 'scripts', 'ensure-handoff.mjs')]
     .find(existsSync);
   const r2 = spawnSync(process.execPath, [eh, checkOnly ? '--check' : '--update'], { stdio: 'inherit' });
   if (r2.status !== 0) fail = true;   // upstream ล่ม/เนื้อหาผิด — รายงานแล้วโดย ensure-handoff เอง

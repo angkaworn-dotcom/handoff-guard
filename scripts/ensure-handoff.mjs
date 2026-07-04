@@ -13,8 +13,9 @@
 import { existsSync, mkdirSync, copyFileSync, writeFileSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+import { normEol, isMainModule } from './update.mjs';
 
 // env override มีไว้ให้ test ชี้ mock server เท่านั้น — ใช้งานจริงคง URL upstream ตายตัว
 const RAW = process.env.HANDOFF_GUARD_HANDOFF_RAW
@@ -59,11 +60,10 @@ function diffText(oldTxt, newTxt) {
   }
 }
 
-// เทียบแบบ line-ending-agnostic (\r\n → \n) — ล้อ sameFile ของ update.mjs (#7):
+// normEol (strip BOM + \r\n→\n) import จาก update.mjs — เป็นฟังก์ชันตัวเดียวกับที่ sameFile ใช้ (#7):
 // installed copy อาจเป็น CRLF (ก็อปจาก working tree ที่ checkout ด้วย core.autocrlf=true
 // ก่อนยุค .gitattributes) แต่ upstream raw.githubusercontent.com เป็น LF เสมอ
 // เทียบ byte ตรงๆ จะรายงาน "มีเวอร์ชันใหม่" ปลอมทุก --check ทั้งที่เนื้อเดียวกัน
-const normEol = (s) => s.replace(/\r\n/g, '\n');
 
 // คืนค่า { changed: boolean, diff: string, message: string } · write=false = --check (ไม่เขียนอะไร)
 export async function updateHandoff({ write } = { write: false }) {
@@ -133,9 +133,9 @@ export async function ensureHandoff() {
   }
 }
 
-// รันเฉพาะตอนเรียกตรงจาก CLI (ไม่รันตอนถูก import)
-const isMain = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
-if (isMain) {
+// รันเฉพาะตอนเรียกตรงจาก CLI (ไม่รันตอนถูก import) — isMainModule เทียบ realpath สองฝั่ง
+// กันเคส junction/symlink ที่ทำให้ guard เดิม false → เงียบ exit 0 (ดู update.mjs)
+if (isMainModule(import.meta.url)) {
   const args = process.argv.slice(2);
   if (args.includes('--update') || args.includes('--check')) {
     try {

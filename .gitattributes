@@ -1,0 +1,20 @@
+# Line-ending policy — repo รันข้าม Windows/macOS/Linux
+# ราก bug (#7): ไม่มีไฟล์นี้ + core.autocrlf=true → working tree เป็น CRLF, install.mjs
+# ก็อปเป็น CRLF, แต่ tarball จาก GitHub เป็น LF → เทียบ byte แล้ว false-positive "มีอัปเดต" ตลอด
+# update.mjs #7 แก้แค่ "การเทียบ" (normalize \r\n) — ไฟล์นี้แก้ที่ราก: บังคับ working tree เป็น LF
+# ให้ deterministic ไม่ว่าผู้ใช้ตั้ง core.autocrlf ยังไง (fresh checkout ได้ LF → install ก็อป LF = ตรง tarball)
+
+# ค่าเริ่มต้น: git ตัดสิน text/binary อัตโนมัติ แล้วเก็บ+เช็คเอาต์ text เป็น LF
+* text=auto eol=lf
+
+# ไฟล์ที่ ship — ระบุชัดกันพลาด (ทุกตัวเป็น LF)
+*.mjs  text eol=lf
+*.js   text eol=lf
+*.json text eol=lf
+*.md   text eol=lf
+*.sh   text eol=lf
+
+# Windows launcher — ต้องเป็น CRLF (บาง shell/ดับเบิลคลิกคาดหวัง CRLF)
+*.ps1  text eol=crlf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf

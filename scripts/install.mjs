@@ -2,11 +2,12 @@
 // One-shot installer — คัดลอกทุกส่วนไป ~/.claude/ + ensure dependency skill + merge settings.json
 // ผู้ใช้สั่งรันเอง (ผ่าน install.ps1 / install.sh ที่เช็ค node ก่อน) = install-time เท่านั้น ไม่ใช่ hook อัตโนมัติ
 // idempotent: รันซ้ำได้ — copy ทับด้วยของล่าสุด, settings.json เพิ่มเฉพาะ hook ที่ยังไม่มี (ไม่ทับของเดิม)
-import { existsSync, mkdirSync, copyFileSync, cpSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { ensureHandoff } from './ensure-handoff.mjs';
+import { installMap } from './update.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repo = join(here, '..');
@@ -17,21 +18,15 @@ const hooksDir = join(claude, 'hooks');
 const cmdDir = join(claude, 'commands');
 for (const d of [skillDir, hooksDir, cmdDir]) mkdirSync(d, { recursive: true });
 
-// 1) skill (SKILL.md + SETUP.md + scripts/ + vendor/ — vendor มีสำเนา handoff ไว้ auto-install)
-copyFileSync(join(repo, 'SKILL.md'), join(skillDir, 'SKILL.md'));
-copyFileSync(join(repo, 'SETUP.md'), join(skillDir, 'SETUP.md'));
-cpSync(join(repo, 'scripts'), join(skillDir, 'scripts'), { recursive: true });
-cpSync(join(repo, 'vendor'), join(skillDir, 'vendor'), { recursive: true });
+// 1) คัดลอกทุกไฟล์ตาม installMap ตัวเดียว (single source of truth — update.mjs ใช้ list เดียวกันเทียบ diff)
+//    ครอบ SKILL.md/SETUP.md + hooks/* + commands/*.md (ตัด .en.md) + scripts/ + vendor/ ทั้งหมด
+//    เพิ่ม/ลบไฟล์ที่ต้องติดตั้ง = แก้ที่ installMap ที่เดียว ไม่มี hardcode ซ้ำที่นี่
+for (const [src, dest] of installMap(repo, claude)) {
+  mkdirSync(dirname(dest), { recursive: true });
+  copyFileSync(join(repo, src), dest);
+}
 console.log('✅ skill → ' + skillDir);
-
-// 2) hooks
-copyFileSync(join(repo, 'hooks', 'context-guard.mjs'), join(hooksDir, 'context-guard.mjs'));
-copyFileSync(join(repo, 'hooks', 'session-resume.mjs'), join(hooksDir, 'session-resume.mjs'));
 console.log('✅ hooks → ' + hooksDir);
-
-// 3) slash commands
-copyFileSync(join(repo, 'commands', 'handoff-guard-max.md'), join(cmdDir, 'handoff-guard-max.md'));
-copyFileSync(join(repo, 'commands', 'handoff-guard-update.md'), join(cmdDir, 'handoff-guard-update.md'));
 console.log('✅ commands → ' + cmdDir);
 
 // 4) settings.json merge — idempotent, ไม่ทับ hooks เดิมของผู้ใช้ (เพิ่มเฉพาะที่ยังไม่มี)

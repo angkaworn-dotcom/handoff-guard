@@ -43,8 +43,13 @@ function walk(dir, base = dir) {
   return out;
 }
 
+// เทียบเนื้อหาแบบ line-ending-agnostic (\r\n → \n) — บน Windows ที่ core.autocrlf=true
+// installed copy เป็น CRLF (install.mjs ก็อปจาก working tree) แต่ tarball จาก GitHub เป็น LF
+// ถ้าเทียบ byte ตรงๆ จะตีว่า "ต่าง" ทุกไฟล์ที่มีขึ้นบรรทัด = false positive ว่ามีอัปเดตตลอด
+// (ไฟล์ใน installMap เป็น text ล้วน — .md/.mjs — normalize ปลอดภัย)
+const norm = (buf) => buf.toString('utf8').replace(/\r\n/g, '\n');
 const sameFile = (a, b) => {
-  try { return readFileSync(a).equals(readFileSync(b)); } catch { return false; }
+  try { return norm(readFileSync(a)) === norm(readFileSync(b)); } catch { return false; }
 };
 
 // รายการ (ไฟล์ใน repo → ที่ติดตั้งจริง) — ล้อโครงของ scripts/install.mjs

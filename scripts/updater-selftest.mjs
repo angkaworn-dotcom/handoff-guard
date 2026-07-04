@@ -156,31 +156,41 @@ const netEnv = { HANDOFF_GUARD_SELF_TARBALL: TARBALL_URL, HANDOFF_GUARD_HANDOFF_
 console.log('updater self-test — hermetic (fakeHome + mock http, ไม่แตะ ~/.claude จริง/เน็ต)');
 
 try {
-  // ── A. install.mjs — ติดตั้งสดจาก repo จริง (worktree) ลงบ้านปลอม ──────────────
-  console.log('\n[A] install.mjs (fresh install จาก repo จริง)');
-  const homeA = mkdtempSync(join(tmpdir(), 'hg-homeA-'));
-  const rA = runNode(REAL_INSTALL, [], { home: homeA });
-  const skillA = join(homeA, '.claude', 'skills', 'handoff-guard');
-  check('A exit 0', rA.status === 0);
-  check('A skill SKILL.md ถูกก็อป', existsSync(join(skillA, 'SKILL.md')));
-  check('A scripts/ ถูกก็อป (update.mjs)', existsSync(join(skillA, 'scripts', 'update.mjs')));
-  check('A hook context-guard.mjs ถูกก็อป', existsSync(join(homeA, '.claude', 'hooks', 'context-guard.mjs')));
-  check('A command handoff-guard-update.md ถูกก็อป', existsSync(join(homeA, '.claude', 'commands', 'handoff-guard-update.md')));
-  const settingsA = join(homeA, '.claude', 'settings.json');
-  check('A settings.json ถูกสร้าง', existsSync(settingsA));
-  const sjA = existsSync(settingsA) ? readFileSync(settingsA, 'utf8') : '';
-  check('A settings มี hook context-guard + session-resume', /context-guard\.mjs/.test(sjA) && /session-resume\.mjs/.test(sjA));
-  check('A dependency skill handoff ถูกติดตั้ง (vendored)', existsSync(join(homeA, '.claude', 'skills', 'handoff', 'SKILL.md')));
+  // ── A. install.mjs — ติดตั้งสดจาก repo layout ลงบ้านปลอม ──────────────
+  // install.mjs อ่านจาก repo layout (hooks/ + commands/ เป็น sibling ของ scripts/) — รันตรงได้เฉพาะตอนอยู่ใน repo
+  // ตอนไฟล์นี้ถูก cpSync ไป installed layout (~/.claude/skills/handoff-guard/scripts/ · hooks จริงอยู่ ~/.claude/hooks/)
+  // จะไม่มี sibling hooks/ → install.mjs โยน ENOENT · ข้าม A แบบมีเหตุผล (ไม่ใช่ fail):
+  // update-full [D] ทดสอบ install pipeline ผ่าน fixture ที่มี layout ถูกต้องอยู่แล้ว ไม่ว่าจะรันจากที่ไหน
+  console.log('\n[A] install.mjs (fresh install จาก repo layout)');
+  const repoLayout = existsSync(join(HERE, '..', 'hooks', 'context-guard.mjs'))
+    && existsSync(join(HERE, '..', 'commands', 'handoff-guard-update.md'));
+  if (!repoLayout) {
+    console.log('  SKIP A — ไม่ได้อยู่ repo layout (installed copy) · install.mjs ตรงต้องรันจาก repo · [D] ครอบ install pipeline ผ่าน fixture แทน');
+  } else {
+    const homeA = mkdtempSync(join(tmpdir(), 'hg-homeA-'));
+    const rA = runNode(REAL_INSTALL, [], { home: homeA });
+    const skillA = join(homeA, '.claude', 'skills', 'handoff-guard');
+    check('A exit 0', rA.status === 0);
+    check('A skill SKILL.md ถูกก็อป', existsSync(join(skillA, 'SKILL.md')));
+    check('A scripts/ ถูกก็อป (update.mjs)', existsSync(join(skillA, 'scripts', 'update.mjs')));
+    check('A hook context-guard.mjs ถูกก็อป', existsSync(join(homeA, '.claude', 'hooks', 'context-guard.mjs')));
+    check('A command handoff-guard-update.md ถูกก็อป', existsSync(join(homeA, '.claude', 'commands', 'handoff-guard-update.md')));
+    const settingsA = join(homeA, '.claude', 'settings.json');
+    check('A settings.json ถูกสร้าง', existsSync(settingsA));
+    const sjA = existsSync(settingsA) ? readFileSync(settingsA, 'utf8') : '';
+    check('A settings มี hook context-guard + session-resume', /context-guard\.mjs/.test(sjA) && /session-resume\.mjs/.test(sjA));
+    check('A dependency skill handoff ถูกติดตั้ง (vendored)', existsSync(join(homeA, '.claude', 'skills', 'handoff', 'SKILL.md')));
 
-  // idempotent — รันซ้ำไม่ error, ไม่เพิ่ม hook ซ้ำ
-  const rA2 = runNode(REAL_INSTALL, [], { home: homeA });
-  check('A rerun exit 0 (idempotent)', rA2.status === 0);
-  check('A rerun ไม่เพิ่ม hook ซ้ำ (settings ครบแล้ว)', /ครบแล้ว/.test(rA2.out));
-  check('A rerun handoff already installed', /already installed/.test(rA2.out));
-  const hooksArr = JSON.parse(readFileSync(settingsA, 'utf8')).hooks?.Stop || [];
-  const guardCount = JSON.stringify(hooksArr).match(/context-guard\.mjs/g)?.length || 0;
-  check('A hook context-guard มีชุดเดียว (ไม่ทับซ้อน)', guardCount === 1);
-  rmSync(homeA, { recursive: true, force: true });
+    // idempotent — รันซ้ำไม่ error, ไม่เพิ่ม hook ซ้ำ
+    const rA2 = runNode(REAL_INSTALL, [], { home: homeA });
+    check('A rerun exit 0 (idempotent)', rA2.status === 0);
+    check('A rerun ไม่เพิ่ม hook ซ้ำ (settings ครบแล้ว)', /ครบแล้ว/.test(rA2.out));
+    check('A rerun handoff already installed', /already installed/.test(rA2.out));
+    const hooksArr = JSON.parse(readFileSync(settingsA, 'utf8')).hooks?.Stop || [];
+    const guardCount = JSON.stringify(hooksArr).match(/context-guard\.mjs/g)?.length || 0;
+    check('A hook context-guard มีชุดเดียว (ไม่ทับซ้อน)', guardCount === 1);
+    rmSync(homeA, { recursive: true, force: true });
+  }
 
   // ── B. update --check: installed=CRLF vs tarball=LF, เนื้อเดียวกัน → "ตรงล่าสุด" ──
   // regression #6 (tar extract สำเร็จบน tmp path C:\...) + #7 (CRLF≡LF ไม่ใช่ false-positive)

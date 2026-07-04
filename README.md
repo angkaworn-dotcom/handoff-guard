@@ -69,9 +69,14 @@ path ใน `settings.json` ต้องเป็น absolute:
 
 ## เช็คว่าใช้ได้
 
+รัน selftest ทั้งสองชุด (ชุดแรกครอบ hook เตือน context · ชุดสองครอบ pipeline ติดตั้ง/อัปเดต — ต้องผ่านทั้งคู่):
+
 ```bash
-node ~/.claude/skills/handoff-guard/scripts/selftest.mjs   # ต้องขึ้น ALL PASS (47 เคส)
+node ~/.claude/skills/handoff-guard/scripts/selftest.mjs           # hook context-guard — ต้องขึ้น ALL PASS (47 เคส)
+node <path repo>/scripts/updater-selftest.mjs                      # install/update pipeline — ต้องขึ้น ALL PASS (32 เคส) · รันจาก repo checkout เท่านั้น
 ```
+
+> `updater-selftest.mjs` ต้องรันจาก **repo checkout** (clone/worktree) ไม่ใช่จากสำเนาที่ติดตั้งใน `~/.claude` — มันทดสอบการติดตั้งจาก repo จริง จึงต้องเห็นทั้ง `hooks/` `commands/` ครบตามโครง repo
 
 อยากลองของจริง: ตั้ง `HANDOFF_GUARD_THRESHOLD=1` ชั่วคราว แล้วพิมพ์อะไรสักประโยค — Claude ควรโดนหยุดแล้วเด้งไปทำ handoff เสร็จแล้ว `unset HANDOFF_GUARD_THRESHOLD` (กลับไป auto) และลบไฟล์ marker ใน `~/.claude/.handoff-guard/` (`*.p`, `*.t1`, `*.t2`, `*.state.json`)
 

@@ -36,13 +36,10 @@ description: Context Manager (V2) — observe→predict→decide→recover. Deci
 | **tier1** + งานใกล้จบใน 1-2 step สั้น | ทำต่อให้จบ step นั้น → **handoff ทันที** (อย่าเริ่มงานใหญ่ใหม่) |
 
 ### 3. ถ้าตัดสินว่า handoff
-1. สร้าง **handoff doc** ด้วย skill `handoff` (superpowers/Matt) — **บังคับใช้ (dependency ของ guard นี้)**
-   invoke skill `handoff` · ส่ง focus ของ session ถัดไปเป็น argument + บังคับให้ครอบ **atomic/uncommitted, worktree/branch/env, BLOCKED**
-   **ที่เก็บ doc: `~/.claude/.handoff-guard/handoffs/` (สร้างโฟลเดอร์ถ้ายังไม่มี) — override default ของ skill `handoff` ที่เซฟลง OS temp** (Temp โดน Disk Cleanup/Storage Sense กวาดได้ → doc หายทั้งที่ pointer ยังชี้)
-   > **ถ้า `handoff` ยังไม่ติดตั้ง** — อย่าปล่อยงานหาย ทำ 3 อย่าง:
-   > 1. เขียน `HANDOFF.md` สั้นๆ **ตอนนี้** (ค้างทันที / worktree-branch-env / งานถัดไป+BLOCKED / gotchas · redact secret)
-   > 2. **ติดตั้ง handoff ให้รอบหน้าอัตโนมัติ:** `node ~/.claude/skills/handoff-guard/scripts/ensure-handoff.mjs`
-   > 3. บอกผู้ใช้: ติดตั้ง `handoff` แล้ว — **restart session** เพื่อให้โหลด (skill โหลดตอนเปิด session ใช้ทันทีไม่ได้)
+1. เขียน **handoff doc เอง** ตามฟอร์แมตของ skill `handoff` (Matt Pocock) — **อย่า invoke ผ่าน Skill tool**: skill นั้นตั้ง `disable-model-invocation: true` โดยเจตนา (โมเดลเรียกเองไม่ได้) · **ตัว doc สำคัญ ไม่ใช่ว่าใครเขียน**
+   - ฟอร์แมตต้นฉบับ: `Read ~/.claude/skills/handoff/SKILL.md` แล้วทำตามทุกข้อ (มี suggested-skills section · อ้าง artifact ที่มีอยู่ด้วย path/URL ไม่ duplicate · redact secret · ปรับตาม focus ของ session ถัดไป) + **บังคับเพิ่ม (guard): atomic/uncommitted, worktree/branch/env, BLOCKED**
+   - **เขียนด้วย Write tool** (UTF-8 ไม่มี BOM — เนื้อ/path ไทยไม่เพี้ยน) ที่ `~/.claude/.handoff-guard/handoffs/` (สร้างโฟลเดอร์ถ้ายังไม่มี) — **override** default ของ Matt ที่เซฟลง OS temp (Temp โดน Disk Cleanup/Storage Sense กวาดได้ → doc หายทั้งที่ pointer ยังชี้)
+   > **ถ้า `~/.claude/skills/handoff/SKILL.md` ไม่มี** (ยังไม่ติดตั้ง) — เขียน doc เลยด้วยฟอร์แมตข้างบน (ค้างทันที / worktree-branch-env / งานถัดไป+BLOCKED / gotchas / suggested-skills · redact secret) แล้วติดตั้งไว้รอบหน้า: `node ~/.claude/skills/handoff-guard/scripts/ensure-handoff.mjs` (ไว้เป็นแหล่งอ้างฟอร์แมต + ให้ผู้ใช้ `/handoff` เองได้)
 2. อัปเดต state file ของ repo (เช่น `task.md`) ให้สดล่าสุด
 3. เขียน pointer **per-worktree** ด้วย **Write tool เท่านั้น**: `~/.claude/.handoff-guard/pointers/<slug ของ cwd เต็ม>.json` เนื้อหา `{"cwd":"<path cwd ปัจจุบันเต็ม>","handoff":"<path handoff doc เต็ม>"}`
    - **slug = path cwd เต็ม → lowercase → แทนอักขระที่ไม่ใช่ a-z, 0-9, อักษรไทย ด้วย `-`** — key ด้วย **path เต็ม** ไม่ใช่ชื่อโฟลเดอร์ กัน main/แต่ละ worktree/โปรเจกต์ชื่อซ้ำเขียนทับกันแล้ว /clear เด้ง handoff ผิดตัว · ชื่อไฟล์ไม่มีผลกับ matching — hook อ่าน field `cwd` ข้างใน

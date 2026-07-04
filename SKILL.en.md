@@ -31,13 +31,10 @@ Protects work from being lost when context is nearly full — the `context-guard
 | **tier1** + work nearly done in 1-2 short steps | Finish that step → **hand off immediately** (do not start anything big) |
 
 ### 3. If the decision is to hand off
-1. Create the **handoff doc** with the `handoff` skill (superpowers/Matt) — **required (a dependency of this guard)**
-   Invoke skill `handoff` · pass the next session's focus as the argument + require it to cover **atomic/uncommitted, worktree/branch/env, BLOCKED**
-   **Doc location: `~/.claude/.handoff-guard/handoffs/` (create the folder if missing) — override the `handoff` skill's default of saving to OS temp** (Temp can be swept by Disk Cleanup/Storage Sense → the doc disappears while the pointer still points at it)
-   > **If `handoff` is not installed** — don't let the work be lost; do 3 things:
-   > 1. Write a short `HANDOFF.md` **right now** (what's pending / worktree-branch-env / next steps + BLOCKED / gotchas · redact secrets)
-   > 2. **Install handoff for next time automatically:** `node ~/.claude/skills/handoff-guard/scripts/ensure-handoff.mjs`
-   > 3. Tell the user: `handoff` is installed — **restart the session** to load it (skills load at session start; it can't be used immediately)
+1. Write the **handoff doc yourself** following the `handoff` skill's format (Matt Pocock) — **do NOT invoke it via the Skill tool**: that skill sets `disable-model-invocation: true` on purpose (the model cannot invoke it) · **what matters is the doc, not who writes it**
+   - Source format: `Read ~/.claude/skills/handoff/SKILL.md` and follow all of it (has a suggested-skills section · reference existing artifacts by path/URL, don't duplicate · redact secrets · tailor to the next session's focus) + **always add (guard): atomic/uncommitted, worktree/branch/env, BLOCKED**
+   - **Write with the Write tool** (UTF-8 no BOM — Thai content/paths stay intact) to `~/.claude/.handoff-guard/handoffs/` (create the folder if missing) — **override** Matt's default of saving to OS temp (Temp can be swept by Disk Cleanup/Storage Sense → the doc disappears while the pointer still points at it)
+   > **If `~/.claude/skills/handoff/SKILL.md` is missing** (not installed) — write the doc now using the format above (what's pending / worktree-branch-env / next steps + BLOCKED / gotchas / suggested-skills · redact secrets), then install for next time: `node ~/.claude/skills/handoff-guard/scripts/ensure-handoff.mjs` (serves as the format reference + lets the user run `/handoff` themselves)
 2. Update the repo's state file (e.g. `task.md`) so it's fresh
 3. Write the **per-worktree** pointer with the **Write tool only**: `~/.claude/.handoff-guard/pointers/<slug of full cwd>.json` containing `{"cwd":"<full current cwd path>","handoff":"<full handoff doc path>"}`
    - **slug = full cwd path → lowercase → replace every character that isn't a-z, 0-9, or Thai letters with `-`** — keyed by the **full path**, not the folder name, so main / each worktree / same-named projects in different places each get their own file and never overwrite each other (which would make /clear pop the wrong handoff) · the filename itself doesn't affect matching — the hook reads the `cwd` field inside

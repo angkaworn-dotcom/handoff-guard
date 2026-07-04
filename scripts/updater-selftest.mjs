@@ -16,7 +16,7 @@
 import { Worker } from 'node:worker_threads';
 import { spawnSync, execFileSync } from 'node:child_process';
 import {
-  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync,
+  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -62,9 +62,10 @@ function buildFixture(work) {
     mkdirSync(dirname(p), { recursive: true });
     writeFileSync(p, toLF(txt));   // LF เสมอ ไม่ว่า disk จริงจะ CRLF
   }
-  // scripts จริง (install ต้อง import ensure-handoff · update-full ต้องรัน install ได้) — normalize LF
+  // scripts จริง — normalize LF · ต้องมี update.mjs ด้วยเพราะ install.mjs + ensure-handoff.mjs
+  // ต่าง import { installMap/normEol/isMainModule } จาก './update.mjs' (side-by-side ทั้งสอง layout)
   mkdirSync(join(dir, 'scripts'), { recursive: true });
-  for (const f of ['install.mjs', 'ensure-handoff.mjs']) {
+  for (const f of ['install.mjs', 'ensure-handoff.mjs', 'update.mjs']) {
     writeFileSync(join(dir, 'scripts', f), toLF(readFileSync(join(HERE, f), 'utf8')));
   }
   const tgz = join(work, 'repo.tgz');
@@ -109,6 +110,8 @@ function runNode(script, args, { home, extraEnv = {} }) {
 // แม้ section ไหน throw กลางคัน — ไม่ทิ้ง temp dir ค้างใน %TEMP% สะสมข้ามรอบ debug
 const ROOT = mkdtempSync(join(tmpdir(), 'hg-upd-'));
 let worker;
+let shuttingDown = false;      // ตั้งก่อน terminate() ตอนจบ — exit หลังจากนี้ = คาดหมาย
+let workerCrashed = false;     // error/exit ที่ไม่คาดหมาย = FAIL (mock server ล่มกลางเทสต์)
 
 const WORKER_SRC = `
   const http = require('node:http');
@@ -133,6 +136,13 @@ try {
     worker.once('error', reject);   // eval/listen พัง → fail ดังๆ ไม่ค้างรอ message ที่ไม่มีวันมา
     worker.once('exit', (code) => reject(new Error('mock worker exit ก่อนพร้อม (code ' + code + ')')));
   });
+  // listener ถาวรหลัง PORT พร้อม — ถ้า worker error/exit เองระหว่างเทสต์ (ไม่ใช่ terminate ตอนจบ)
+  // = mock server ล่ม → บันทึกไว้เป็น FAIL แทนที่จะปล่อยเทสต์ถัดๆ ไปพังแบบงงๆ (timeout/connection refused)
+  worker.on('error', (e) => { workerCrashed = true; console.error('  mock worker ERROR:', e.message); });
+  worker.on('exit', (code) => {
+    if (!shuttingDown) { workerCrashed = true; console.error('  mock worker EXIT ก่อนกำหนด (code ' + code + ')'); }
+  });
+
   const TARBALL_URL = `http://127.0.0.1:${PORT}/repo.tgz`;
   const RAW_URL = `http://127.0.0.1:${PORT}/handoff-SKILL.md`;
   const netEnv = { HANDOFF_GUARD_SELF_TARBALL: TARBALL_URL, HANDOFF_GUARD_HANDOFF_RAW: RAW_URL };
@@ -239,10 +249,53 @@ try {
   check('F exit 0', rF.status === 0);
   check('F รายงาน "ตรงกับ upstream ล่าสุดอยู่แล้ว" (CRLF≡LF)', /ตรงกับ upstream ล่าสุดอยู่แล้ว/.test(rF.out));
   check('F ไม่ false-positive ว่ามีเวอร์ชันใหม่', !/upstream มีเวอร์ชันใหม่/.test(rF.out));
+
+  // ── G. cross-check installMap เทียบ "ชุดขั้นต่ำที่ hardcode ไว้" — independent จากโค้ด production ─
+  // จงใจ hardcode รายการที่คาดหวังไว้ตรงนี้ (ไม่ derive จาก installMap เอง — ถ้า derive จะเป็น tautology
+  // ที่ผ่านเสมอ) · ถ้า installMap ในอนาคตเผลอตัดไฟล์สำคัญออก (เช่น hook หาย, filter .en.md หลุด)
+  // ชุดนี้จะจับได้ · รายการ align กับ FIXTURE_TEXT + scripts จริงที่ buildFixture วางไว้ (install/ensure-handoff)
+  console.log('\n[G] cross-check installMap ⊇ ชุดขั้นต่ำที่ hardcode (independent — กัน tautology)');
+  const fakeClaude = join('X', '.claude');   // claudeRoot สมมุติ — เทียบ suffix เท่านั้น (ไม่พึ่งบ้านจริง)
+  const mapG = installMap(fx.dir, fakeClaude);
+  const destsG = mapG.map(([, d]) => d.replace(/\\/g, '/'));
+  const expectMin = [
+    'skills/handoff-guard/SKILL.md',
+    'skills/handoff-guard/SETUP.md',
+    'hooks/context-guard.mjs',
+    'hooks/session-resume.mjs',
+    'commands/handoff-guard-max.md',
+    'commands/handoff-guard-update.md',
+    'skills/handoff-guard/scripts/ensure-handoff.mjs',   // scripts/ walk (fixture มี install+ensure-handoff)
+    'skills/handoff-guard/scripts/install.mjs',
+    'skills/handoff-guard/vendor/handoff/SKILL.md',      // vendored handoff SKILL.md
+  ];
+  for (const suffix of expectMin) {
+    check('G installMap มี dest ลงท้าย ' + suffix, destsG.some((d) => d.endsWith(suffix)));
+  }
+  // (5b-1) installMap ต้องไม่ map ไฟล์ .en.md เลย (filter ใน production)
+  check('G installMap ไม่มี dest ใดลงท้าย .en.md', !destsG.some((d) => d.endsWith('.en.md')));
+
+  // ── H. หลัง full update [D]: บ้านปลอมมีครบทุก pair จาก installMap + ไม่มี .en.md หลุดมา ──
+  // มีความหมายจริงเพราะ install.mjs ตอนนี้ก็อปตาม installMap → dest ทุกตัวต้องโผล่ในบ้าน homeD
+  console.log('\n[H] หลัง [D] full update: ทุก dest ใน installMap ต้องมีจริงในบ้านปลอม + ไม่มี .en.md');
+  const claudeD = join(homeD, '.claude');
+  const mapD = installMap(fx.dir, claudeD);
+  let allPresent = true, missingFirst = '';
+  for (const [, dest] of mapD) {
+    if (!existsSync(dest)) { allPresent = false; if (!missingFirst) missingFirst = dest; }
+  }
+  check('H ทุก [src,dest] ใน installMap มีอยู่ในบ้านปลอมหลัง update' + (missingFirst ? ' (ขาด: ' + missingFirst + ')' : ''), allPresent);
+  // (5b-2) commands/handoff-guard-max.en.md ต้องไม่ถูกก็อปเข้าบ้าน (filter ทำงานตลอดสาย install)
+  check('H commands/handoff-guard-max.en.md ไม่มีในบ้านปลอม (filter .en.md)',
+    !existsSync(join(claudeD, 'commands', 'handoff-guard-max.en.md')));
 } finally {
+  shuttingDown = true;
   if (worker) await worker.terminate();
   rmSync(ROOT, { recursive: true, force: true });
 }
+
+// worker ล่มกลางคัน (นอกเหนือ terminate ตอนจบ) = FAIL
+check('worker mock server ไม่ crash ระหว่างเทสต์', !workerCrashed);
 
 console.log(`\n${fail === 0 ? 'ALL PASS ✅' : 'FAILURES ❌'} — ${pass} pass, ${fail} fail`);
 process.exit(fail === 0 ? 0 : 1);

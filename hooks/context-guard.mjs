@@ -24,7 +24,9 @@ try {
 // ตั้งด้วย `/handoff-guard-max 0` (เขียน config.json {max:0}) หรือ env HANDOFF_GUARD_MAX=0 (ชั่วคราว)
 // เปิดคืน: /handoff-guard-max reset (auto) หรือ /handoff-guard-max <n> (pin ค่าใหม่)
 {
-  const pinned = process.env.HANDOFF_GUARD_MAX ?? fileConfig.max;   // undefined = ไม่ได้ตั้ง → ไม่ใช่ kill switch
+  // env ว่าง ("") = ไม่ได้ตั้ง — ต้อง fall through ไป config ไม่งั้น env ว่างจะ mask kill switch ของ config {max:0}
+  const envMax = process.env.HANDOFF_GUARD_MAX;
+  const pinned = (envMax !== undefined && envMax !== '') ? envMax : fileConfig.max;   // undefined = ไม่ได้ตั้ง → ไม่ใช่ kill switch
   if (pinned !== undefined && pinned !== '' && Number(pinned) === 0) process.exit(0);
 }
 
@@ -72,8 +74,9 @@ function lastMainUsage(transcript) {
     for (;;) {
       const start = Math.max(0, size - chunk);
       const buf = Buffer.alloc(size - start);
-      readSync(fd, buf, 0, buf.length, start);
-      const lines = buf.toString('utf8').split('\n');
+      // ใช้จำนวน byte ที่อ่านได้จริง — read สั้น (ไฟล์โดน truncate ระหว่างอ่าน) จะทิ้ง \0 ค้างท้าย buffer
+      const n = readSync(fd, buf, 0, buf.length, start);
+      const lines = buf.toString('utf8', 0, n).split('\n');
       if (start > 0) lines.shift();   // บรรทัดแรกของ chunk อาจโดนตัดกลางบรรทัด — ทิ้ง
       for (let i = lines.length - 1; i >= 0; i--) {
         const s = lines[i].trim();
@@ -112,7 +115,9 @@ function main() {
   const model = last.model;
 
   // เพดาน/threshold — คำนวณหลังรู้โมเดล (env > config.json pin > โมเดลที่ detect > fallback)
-  const MAX = Number(process.env.HANDOFF_GUARD_MAX || fileConfig.max || windowForModel(model));
+  let MAX = Number(process.env.HANDOFF_GUARD_MAX || fileConfig.max || windowForModel(model));
+  // config.max ไม่ใช่ตัวเลข (เช่น "abc") → NaN ทำทุก comparison เป็น false = guard ปิดเงียบ → fallback เพดานโมเดล
+  if (!Number.isFinite(MAX) || MAX <= 0) MAX = windowForModel(model);
   // env MAX ตั้ง → t1/t2 ที่ pin ในไฟล์คิดจาก max ตัวเก่า ห้ามเอามาใช้ (config {max:500k,t1:360k}
   // + env MAX=200k → T1 > MAX = guard เงียบตลอด) — คิด % ใหม่จาก MAX เว้นแต่ env T1/T2 ตั้งเอง
   const envMaxSet = (process.env.HANDOFF_GUARD_MAX ?? '') !== '';

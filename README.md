@@ -123,3 +123,9 @@ node <path repo>/scripts/updater-selftest.mjs                      # install/upd
 ตัวสร้างเอกสาร handoff ใช้ skill `handoff` ของ Matt Pocock ([mattpocock/skills](https://github.com/mattpocock/skills)) · `vendor/handoff/` คือสำเนา pinned ที่ใช้ติดตั้งเป็นหลัก (ดึงจาก upstream เฉพาะเมื่อสำเนาหาย — เนื้อหาที่ฉีดเข้า context ควรเป็นเวอร์ชันที่รีวิวแล้ว ไม่ใช่ branch main สดๆ) (© Matt Pocock)
 
 อัปเดตเป็นเวอร์ชันล่าสุด (ทั้ง handoff-guard เองและ `handoff` ของ Matt) ในคำสั่งเดียว: พิมพ์ `/handoff-guard-update` ในแชท หรือรัน `node ~/.claude/skills/handoff-guard/scripts/update.mjs --check` ดูก่อนว่ามีอะไรใหม่ แล้วรันโดยไม่ใส่ `--check` เพื่อรับมา (สำรองของเดิมเป็น `.bak` ให้ · เสร็จแล้ว restart session) — การอัปเดตเป็นการสั่งเองเสมอ ไม่ดึงอัตโนมัติ · อยากอัปเดตเฉพาะส่วนของ Matt: `ensure-handoff.mjs --update`
+
+## License
+
+[MIT](LICENSE) — เอาไปใช้/ดัดแปลง/แจกจ่ายต่อได้อิสระ ขอแค่คง copyright notice ไว้
+
+skill `handoff` ที่ bundle มาใน `vendor/handoff/` เป็นผลงานของ Matt Pocock แจกจ่ายต่อภายใต้ MIT license ของเขาเอง (© 2026 Matt Pocock) — ดู [vendor/handoff/LICENSE](vendor/handoff/LICENSE)

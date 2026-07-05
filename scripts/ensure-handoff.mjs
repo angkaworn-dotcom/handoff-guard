@@ -15,6 +15,9 @@ import { homedir, tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { execFileSync } from 'node:child_process';
+// normEol (strip BOM + \r\n→\n) + isMainModule import จาก update.mjs (ตัวเดียวกับที่ sameFile ใช้ #7):
+// installed copy อาจเป็น CRLF (checkout ด้วย core.autocrlf=true ก่อนยุค .gitattributes) แต่ upstream
+// raw.githubusercontent.com เป็น LF เสมอ — เทียบ byte ตรงๆ จะรายงาน "มีเวอร์ชันใหม่" ปลอมทุก --check ทั้งที่เนื้อเดียวกัน
 import { normEol, isMainModule } from './update.mjs';
 
 // env override มีไว้ให้ test ชี้ mock server เท่านั้น — ใช้งานจริงคง URL upstream ตายตัว
@@ -59,11 +62,6 @@ function diffText(oldTxt, newTxt) {
     rmSync(dir, { recursive: true, force: true });
   }
 }
-
-// normEol (strip BOM + \r\n→\n) import จาก update.mjs — เป็นฟังก์ชันตัวเดียวกับที่ sameFile ใช้ (#7):
-// installed copy อาจเป็น CRLF (ก็อปจาก working tree ที่ checkout ด้วย core.autocrlf=true
-// ก่อนยุค .gitattributes) แต่ upstream raw.githubusercontent.com เป็น LF เสมอ
-// เทียบ byte ตรงๆ จะรายงาน "มีเวอร์ชันใหม่" ปลอมทุก --check ทั้งที่เนื้อเดียวกัน
 
 // คืนค่า { changed: boolean, diff: string, message: string } · write=false = --check (ไม่เขียนอะไร)
 export async function updateHandoff({ write } = { write: false }) {

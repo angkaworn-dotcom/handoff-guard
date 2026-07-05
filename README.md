@@ -73,7 +73,7 @@ path ใน `settings.json` ต้องเป็น absolute:
 
 ```bash
 node ~/.claude/skills/handoff-guard/scripts/selftest.mjs           # hook context-guard — ต้องขึ้น ALL PASS (47 เคส)
-node <path repo>/scripts/updater-selftest.mjs                      # install/update pipeline — ต้องขึ้น ALL PASS (45 เคส) · รันจาก repo checkout เท่านั้น
+node <path repo>/scripts/updater-selftest.mjs                      # install/update pipeline — ต้องขึ้น ALL PASS (51 เคส) · รันจาก repo checkout เท่านั้น
 ```
 
 > `updater-selftest.mjs` ต้องรันจาก **repo checkout** (clone/worktree) ไม่ใช่จากสำเนาที่ติดตั้งใน `~/.claude` — มันทดสอบการติดตั้งจาก repo จริง จึงต้องเห็นทั้ง `hooks/` `commands/` ครบตามโครง repo

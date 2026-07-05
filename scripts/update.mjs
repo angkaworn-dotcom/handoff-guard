@@ -8,7 +8,7 @@
 import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync, readdirSync, realpathSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { execFileSync, spawnSync } from 'node:child_process';
 
 // env override มีไว้ให้ test ชี้ mock server เท่านั้น — ใช้งานจริงคง URL ตายตัว
@@ -46,7 +46,8 @@ function walk(dir, base = dir) {
 //  - strip leading UTF-8 BOM (U+FEFF) — บางเครื่องมือ/editor ใส่ BOM ให้ .md แต่ tarball GitHub ไม่มี
 //  - \r\n → \n — บน Windows ที่ core.autocrlf=true installed copy เป็น CRLF แต่ tarball เป็น LF
 // ถ้าเทียบ byte ตรงๆ จะตีว่า "ต่าง" ทุกไฟล์ที่มี BOM/ขึ้นบรรทัด = false positive ว่ามีอัปเดตตลอด
-// ตัวเดียวใช้ร่วมทั้ง repo: sameFile ที่นี่ + ensure-handoff.mjs import ไปใช้ (ไฟล์ text ล้วน — normalize ปลอดภัย)
+// ใช้ร่วมใน scripts/: sameFile ที่นี่ + ensure-handoff.mjs import ไปใช้ (ไฟล์ text ล้วน — normalize ปลอดภัย)
+// ข้อยกเว้น: hooks/session-resume.mjs มี BOM strip ของตัวเอง (hook import ข้าม install layout ไม่ได้ จึงก็อปโค้ดซ้ำโดยตั้งใจ)
 export const normEol = (s) => s.replace(/^\uFEFF/, '').replace(/\r\n/g, '\n');
 const sameFile = (a, b) => {
   try { return normEol(readFileSync(a, 'utf8')) === normEol(readFileSync(b, 'utf8')); } catch { return false; }
@@ -61,12 +62,23 @@ export function installMap(repoDir, claudeRoot = claude) {
   const map = [
     ['SKILL.md', join(sDir, 'SKILL.md')],
     ['SETUP.md', join(sDir, 'SETUP.md')],
-    [join('hooks', 'context-guard.mjs'), join(hDir, 'context-guard.mjs')],
-    [join('hooks', 'session-resume.mjs'), join(hDir, 'session-resume.mjs')],
   ];
+  // hooks/ — walk เหมือน scripts/ (hook ใหม่ที่เพิ่มจะถูกติดตั้ง+ detect อัตโนมัติ ไม่ต้อง hardcode)
+  const hd = join(repoDir, 'hooks');
+  if (existsSync(hd)) for (const f of walk(hd)) map.push([join('hooks', f), join(hDir, f)]);
   for (const sub of ['scripts', 'vendor']) {
     const d = join(repoDir, sub);
-    if (existsSync(d)) for (const f of walk(d)) map.push([join(sub, f), join(sDir, sub, f)]);
+    if (!existsSync(d)) continue;
+    let files = walk(d);
+    // scripts/ ต้อง copy "ผู้ให้ก่อนผู้ใช้" — invariant: ถ้า copy loop ถูกขัด (crash/Ctrl-C/ENOSPC) กลางคัน
+    // dir ที่ติดตั้งต้องไม่เหลือสภาพ new-importer + old-provider (importer พังทันทีเพราะ export ที่มันต้องใช้ยังไม่มา)
+    // dependency chain: update.mjs (ไม่ import ในเครือ) ← ensure-handoff.mjs ← install.mjs
+    // → เรียง update.mjs ก่อน, ensure-handoff.mjs ถัดมา, ที่เหลือตามเดิม · install.mjs เอง import ensureHandoff จึงต้องมาหลัง
+    if (sub === 'scripts') {
+      const rank = (f) => (f === 'update.mjs' ? 0 : f === 'ensure-handoff.mjs' ? 1 : 2);
+      files = [...files].sort((a, b) => rank(a) - rank(b));
+    }
+    for (const f of files) map.push([join(sub, f), join(sDir, sub, f)]);
   }
   const cd = join(repoDir, 'commands');
   if (existsSync(cd)) {
@@ -78,13 +90,18 @@ export function installMap(repoDir, claudeRoot = claude) {
 }
 
 // เทียบว่าไฟล์นี้ถูกเรียกตรงจาก CLI หรือไม่ — ด้วย realpath ทั้งสองฝั่ง:
-// Node realpath ทาง ESM entry ให้อยู่แล้ว ถ้าเทียบ metaUrl กับ argv[1] ดิบๆ (ผ่าน pathToFileURL)
-// การรันผ่าน junction/symlink จะได้ false → CLI เงียบ exit 0 (สังเกตจริงบน Windows junction)
-// realpathSync สองฝั่งให้ตรงกันจึงทำงานถูกไม่ว่าจะเรียกผ่าน link ใด · argv[1] undefined/error → false
+// การรันผ่าน junction/symlink จะทำให้เทียบ metaUrl กับ argv[1] ดิบๆ ได้ false → CLI เงียบ exit 0
+// (สังเกตจริงบน Windows junction) · realpathSync สองฝั่งให้ตรงกันจึงทำงานถูกไม่ว่าจะเรียกผ่าน link ใด
+// realpathSync throw ได้ (network share หลุด, EPERM, path หาย, --preserve-symlinks-main) — ถ้าเผลอ return false
+// จะกลับไปเป็นบั๊กเดิม (CLI เงียบ exit 0) · fallback: เทียบสตริงตรงๆ ผ่าน pathToFileURL(argv[1])
+// argv[1] undefined เท่านั้นที่ถือว่าไม่ใช่ main (ถูก import)
 export function isMainModule(metaUrl) {
+  if (!process.argv[1]) return false;
   try {
-    return !!process.argv[1] && realpathSync(fileURLToPath(metaUrl)) === realpathSync(process.argv[1]);
-  } catch { return false; }
+    return realpathSync(fileURLToPath(metaUrl)) === realpathSync(process.argv[1]);
+  } catch {
+    return metaUrl === pathToFileURL(process.argv[1]).href;
+  }
 }
 
 // รันเฉพาะตอนเรียกตรงจาก CLI — ตอนถูก import (โดย updater-selftest.mjs) ต้องไม่ยิงเน็ต/ไม่ exit
@@ -127,10 +144,16 @@ try {
 
   // ── ส่วนที่ 2: skill `handoff` ของ Matt ─────────────────────────────────────
   console.log('\n── skill handoff (Matt Pocock upstream) ──');
-  // ใช้ตัวจาก repoDir ก่อน (= ตัวที่เพิ่งดาวน์โหลดล่าสุด ทั้งโหมด --check และ full-update) —
-  // ตกมาใช้ตัวที่ติดตั้งไว้เดิมเฉพาะกรณี tarball ไม่มี (ไม่ควรเกิด) · repoDir คือของใหม่เสมอ ไม่ใช่ตัว stale
-  const eh = [join(repoDir, 'scripts', 'ensure-handoff.mjs'), join(skillDir, 'scripts', 'ensure-handoff.mjs')]
-    .find(existsSync);
+  // เลือก ensure-handoff.mjs ตัวไหนรันตาม tradeoff ของแต่ละโหมด:
+  //   --check (สัญญา read-only + trusted): ใช้ตัว "ที่ติดตั้งไว้" ก่อน — โค้ดที่ผ่านการติดตั้ง/รีวิวแล้ว
+  //     ห้ามรันโค้ดจาก tarball ที่เพิ่งดาวน์โหลด (ผ่านแค่ regex sanity) · ยอมแลกกับอาจ stale ไป 1 เวอร์ชัน
+  //   full-update: ใช้ตัวจาก tarball ก่อน — เรากำลังจะติดตั้งโค้ดชุดนี้อยู่แล้ว (และหลัง install.mjs รันจบ
+  //     ตัวที่ติดตั้ง = ตัวใหม่นี้พอดี) จึงรับได้ที่จะรัน fresh code
+  // ทั้งสองโหมด fallback ไปอีกตัวถ้าตัวที่ preferred ไม่มี (ไม่ควรเกิด)
+  const ehCandidates = checkOnly
+    ? [join(skillDir, 'scripts', 'ensure-handoff.mjs'), join(repoDir, 'scripts', 'ensure-handoff.mjs')]
+    : [join(repoDir, 'scripts', 'ensure-handoff.mjs'), join(skillDir, 'scripts', 'ensure-handoff.mjs')];
+  const eh = ehCandidates.find(existsSync);
   const r2 = spawnSync(process.execPath, [eh, checkOnly ? '--check' : '--update'], { stdio: 'inherit' });
   if (r2.status !== 0) fail = true;   // upstream ล่ม/เนื้อหาผิด — รายงานแล้วโดย ensure-handoff เอง
 

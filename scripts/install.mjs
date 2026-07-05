@@ -16,7 +16,6 @@ const claude = join(homedir(), '.claude');
 const skillDir = join(claude, 'skills', 'handoff-guard');
 const hooksDir = join(claude, 'hooks');
 const cmdDir = join(claude, 'commands');
-for (const d of [skillDir, hooksDir, cmdDir]) mkdirSync(d, { recursive: true });
 
 // 1) คัดลอกทุกไฟล์ตาม installMap ตัวเดียว (single source of truth — update.mjs ใช้ list เดียวกันเทียบ diff)
 //    ครอบ SKILL.md/SETUP.md + hooks/* + commands/*.md (ตัด .en.md) + scripts/ + vendor/ ทั้งหมด
@@ -29,7 +28,7 @@ console.log('✅ skill → ' + skillDir);
 console.log('✅ hooks → ' + hooksDir);
 console.log('✅ commands → ' + cmdDir);
 
-// 4) settings.json merge — idempotent, ไม่ทับ hooks เดิมของผู้ใช้ (เพิ่มเฉพาะที่ยังไม่มี)
+// 2) settings.json merge — idempotent, ไม่ทับ hooks เดิมของผู้ใช้ (เพิ่มเฉพาะที่ยังไม่มี)
 const settingsPath = join(claude, 'settings.json');
 let settings = {};
 let canMerge = true;
@@ -62,7 +61,7 @@ if (canMerge) {
   }
 }
 
-// 5) dependency skill `handoff` (Matt Pocock) — ใช้ vendored ก่อน → fallback ดึง upstream
+// 3) dependency skill `handoff` (Matt Pocock) — ใช้ vendored ก่อน → fallback ดึง upstream
 const r = await ensureHandoff();
 console.log((r.installed ? '✅ ' : '⚠️ ') + r.message);
 

@@ -16,7 +16,7 @@
 import { Worker } from 'node:worker_threads';
 import { spawnSync, execFileSync } from 'node:child_process';
 import {
-  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync,
+  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -132,9 +132,19 @@ try {
   const tgzBytes = readFileSync(fx.tgz);
   worker = new Worker(WORKER_SRC, { eval: true, workerData: { tgz: tgzBytes, upstream: HANDOFF_UPSTREAM } });
   const PORT = await new Promise((resolve, reject) => {
-    worker.once('message', resolve);
-    worker.once('error', reject);   // eval/listen พัง → fail ดังๆ ไม่ค้างรอ message ที่ไม่มีวันมา
-    worker.once('exit', (code) => reject(new Error('mock worker exit ก่อนพร้อม (code ' + code + ')')));
+    // ผูก listener แบบตั้งชื่อไว้เพื่อถอดทั้งหมดเมื่อ settle — กัน listener ค้าง (teardown 'exit' reject ตอนนี้ no-op
+    // แต่ latent: ถ้าไม่ถอด พอ terminate() ตอนจบจะยิง onExit เก่าที่ reject promise ที่ settle ไปแล้ว)
+    const onMessage = (port) => { cleanup(); resolve(port); };
+    const onError = (e) => { cleanup(); reject(e); };   // eval/listen พัง → fail ดังๆ ไม่ค้างรอ message ที่ไม่มีวันมา
+    const onExit = (code) => { cleanup(); reject(new Error('mock worker exit ก่อนพร้อม (code ' + code + ')')); };
+    const cleanup = () => {
+      worker.removeListener('message', onMessage);
+      worker.removeListener('error', onError);
+      worker.removeListener('exit', onExit);
+    };
+    worker.once('message', onMessage);
+    worker.once('error', onError);
+    worker.once('exit', onExit);
   });
   // listener ถาวรหลัง PORT พร้อม — ถ้า worker error/exit เองระหว่างเทสต์ (ไม่ใช่ terminate ตอนจบ)
   // = mock server ล่ม → บันทึกไว้เป็น FAIL แทนที่จะปล่อยเทสต์ถัดๆ ไปพังแบบงงๆ (timeout/connection refused)
@@ -156,7 +166,7 @@ try {
 
   // ── A. install.mjs — ติดตั้งสดจาก repo layout ลงบ้านปลอม ──────────────
   // install.mjs อ่านจาก repo layout (hooks/ + commands/ เป็น sibling ของ scripts/) — รันตรงได้เฉพาะตอนอยู่ใน repo
-  // ตอนไฟล์นี้ถูก cpSync ไป installed layout (~/.claude/skills/handoff-guard/scripts/ · hooks จริงอยู่ ~/.claude/hooks/)
+  // ตอนไฟล์นี้ถูกติดตั้งตาม installMap ไป installed layout (~/.claude/skills/handoff-guard/scripts/ · hooks จริงอยู่ ~/.claude/hooks/)
   // จะไม่มี sibling hooks/ → install.mjs โยน ENOENT · ข้าม A แบบมีเหตุผล (ไม่ใช่ fail):
   // update-full [D] ทดสอบ install pipeline ผ่าน fixture ที่มี layout ถูกต้องอยู่แล้ว ไม่ว่าจะรันจากที่ไหน
   console.log('\n[A] install.mjs (fresh install จาก repo layout)');
@@ -253,11 +263,14 @@ try {
   // ── G. cross-check installMap เทียบ "ชุดขั้นต่ำที่ hardcode ไว้" — independent จากโค้ด production ─
   // จงใจ hardcode รายการที่คาดหวังไว้ตรงนี้ (ไม่ derive จาก installMap เอง — ถ้า derive จะเป็น tautology
   // ที่ผ่านเสมอ) · ถ้า installMap ในอนาคตเผลอตัดไฟล์สำคัญออก (เช่น hook หาย, filter .en.md หลุด)
-  // ชุดนี้จะจับได้ · รายการ align กับ FIXTURE_TEXT + scripts จริงที่ buildFixture วางไว้ (install/ensure-handoff)
+  // ชุดนี้จะจับได้ · รายการ align กับ FIXTURE_TEXT + scripts จริงที่ buildFixture วางไว้ (install/ensure-handoff/update)
+  // ใช้ claudeD (บ้าน homeD จาก [D]) เป็น claudeRoot map เดียวกันทั้ง G+H — ไม่มี synthetic root แยก
   console.log('\n[G] cross-check installMap ⊇ ชุดขั้นต่ำที่ hardcode (independent — กัน tautology)');
-  const fakeClaude = join('X', '.claude');   // claudeRoot สมมุติ — เทียบ suffix เท่านั้น (ไม่พึ่งบ้านจริง)
-  const mapG = installMap(fx.dir, fakeClaude);
-  const destsG = mapG.map(([, d]) => d.replace(/\\/g, '/'));
+  const claudeD = join(homeD, '.claude');
+  const mapG = installMap(fx.dir, claudeD);
+  const destsG = mapG.map(([, d]) => d);
+  // เทียบ full equality (dest === join(claudeD, suffix)) ไม่ใช่ endsWith — endsWith ปล่อยผ่าน dest ผิดที่
+  // เช่น <claudeD>/skills/handoff-guard/hooks/context-guard.mjs ก็ยัง endsWith 'hooks/context-guard.mjs'
   const expectMin = [
     'skills/handoff-guard/SKILL.md',
     'skills/handoff-guard/SETUP.md',
@@ -265,36 +278,93 @@ try {
     'hooks/session-resume.mjs',
     'commands/handoff-guard-max.md',
     'commands/handoff-guard-update.md',
-    'skills/handoff-guard/scripts/ensure-handoff.mjs',   // scripts/ walk (fixture มี install+ensure-handoff)
+    'skills/handoff-guard/scripts/update.mjs',           // ไฟล์ที่ script อื่นทุกตัว import จากมัน
+    'skills/handoff-guard/scripts/ensure-handoff.mjs',   // scripts/ walk (fixture มี install+ensure-handoff+update)
     'skills/handoff-guard/scripts/install.mjs',
     'skills/handoff-guard/vendor/handoff/SKILL.md',      // vendored handoff SKILL.md
   ];
   for (const suffix of expectMin) {
-    check('G installMap มี dest ลงท้าย ' + suffix, destsG.some((d) => d.endsWith(suffix)));
+    const want = join(claudeD, ...suffix.split('/'));
+    check('G installMap มี dest = ' + suffix, destsG.some((d) => d === want));
   }
+  // negative control: dest ผิดที่ (hook ไปโผล่ใต้ skillDir) ต้องไม่ match checker — ยืนยัน full-equality ไม่ใช่ endsWith
+  const wrongDest = join(claudeD, 'skills', 'handoff-guard', 'hooks', 'context-guard.mjs');
+  check('G (neg-ctrl) dest ผิดที่ใต้ skillDir ไม่ match แบบ full-equality',
+    !destsG.some((d) => d === wrongDest) && wrongDest.replace(/\\/g, '/').endsWith('hooks/context-guard.mjs'));
   // (5b-1) installMap ต้องไม่ map ไฟล์ .en.md เลย (filter ใน production)
-  check('G installMap ไม่มี dest ใดลงท้าย .en.md', !destsG.some((d) => d.endsWith('.en.md')));
+  check('G installMap ไม่มี dest ใดลงท้าย .en.md', !destsG.some((d) => d.replace(/\\/g, '/').endsWith('.en.md')));
 
   // ── H. หลัง full update [D]: บ้านปลอมมีครบทุก pair จาก installMap + ไม่มี .en.md หลุดมา ──
   // มีความหมายจริงเพราะ install.mjs ตอนนี้ก็อปตาม installMap → dest ทุกตัวต้องโผล่ในบ้าน homeD
+  // ใช้ mapG ก้อนเดียวกับ G (claudeRoot=claudeD) — ไม่เรียก installMap ซ้ำ
   console.log('\n[H] หลัง [D] full update: ทุก dest ใน installMap ต้องมีจริงในบ้านปลอม + ไม่มี .en.md');
-  const claudeD = join(homeD, '.claude');
-  const mapD = installMap(fx.dir, claudeD);
   let allPresent = true, missingFirst = '';
-  for (const [, dest] of mapD) {
+  for (const [, dest] of mapG) {
     if (!existsSync(dest)) { allPresent = false; if (!missingFirst) missingFirst = dest; }
   }
   check('H ทุก [src,dest] ใน installMap มีอยู่ในบ้านปลอมหลัง update' + (missingFirst ? ' (ขาด: ' + missingFirst + ')' : ''), allPresent);
   // (5b-2) commands/handoff-guard-max.en.md ต้องไม่ถูกก็อปเข้าบ้าน (filter ทำงานตลอดสาย install)
   check('H commands/handoff-guard-max.en.md ไม่มีในบ้านปลอม (filter .en.md)',
     !existsSync(join(claudeD, 'commands', 'handoff-guard-max.en.md')));
+
+  // ── I. installMap ordering: provider ก่อน importer ใน scripts/ (invariant กัน mixed-version window #1) ──
+  // ถ้า copy loop ถูกขัดกลางคัน dir ที่ติดตั้งต้องไม่เหลือ new-importer + old-provider (importer พังทันที)
+  // chain: update.mjs (no local import) ← ensure-handoff.mjs ← install.mjs → index ต้องเรียงตามนี้
+  console.log('\n[I] installMap ordering — scripts provider-before-importer (#1)');
+  const idxOf = (base) => mapG.findIndex(([, d]) =>
+    d === join(claudeD, 'skills', 'handoff-guard', 'scripts', base));
+  const iUpd = idxOf('update.mjs'), iEns = idxOf('ensure-handoff.mjs'), iIns = idxOf('install.mjs');
+  check('I update.mjs มาก่อน ensure-handoff.mjs', iUpd >= 0 && iEns >= 0 && iUpd < iEns);
+  check('I ensure-handoff.mjs มาก่อน install.mjs', iEns >= 0 && iIns >= 0 && iEns < iIns);
+
+  // ── J. real-repo drift guard: installMap เทียบ checkout จริง (ไม่ใช่ fixture) ──
+  // fixture อาจ lag repo จริง — ข้อนี้จับ hook/command ที่เพิ่มใน repo จริงแต่ตกจาก installMap
+  // (เช่น เพิ่ม hook ใหม่แต่ลืม walk / เพิ่ม command แต่ filter พลาด) · REPO_ROOT = parent ของ HERE (scripts/)
+  console.log('\n[J] real-repo drift: installMap ⊇ ทุก hook จริง + ทุก command .md (ไม่ใช่ .en.md)');
+  const REPO_ROOT = join(HERE, '..');
+  const repoLayoutJ = existsSync(join(REPO_ROOT, 'hooks')) && existsSync(join(REPO_ROOT, 'commands'));
+  if (!repoLayoutJ) {
+    console.log('  SKIP J — ไม่ได้อยู่ repo layout (installed copy ไม่มี hooks/ commands/ sibling)');
+  } else {
+    const fakeJ = join(ROOT, 'fakeJ', '.claude');
+    const srcsJ = installMap(REPO_ROOT, fakeJ).map(([src]) => src.replace(/\\/g, '/'));
+    // ทุกไฟล์จริงใต้ hooks/ (recursive) ต้องอยู่ใน map
+    const walkRel = (dir, base = dir) => {
+      const out = [];
+      for (const d of readdirSync(dir, { withFileTypes: true })) {
+        const p = join(dir, d.name);
+        if (d.isDirectory()) out.push(...walkRel(p, base));
+        else out.push(join('hooks', p.slice(base.length + 1)).replace(/\\/g, '/'));
+      }
+      return out;
+    };
+    let hooksOk = true, hookMiss = '';
+    for (const rel of walkRel(join(REPO_ROOT, 'hooks'))) {
+      if (!srcsJ.includes(rel)) { hooksOk = false; if (!hookMiss) hookMiss = rel; }
+    }
+    check('J ทุก hook จริงใน repo อยู่ใน installMap' + (hookMiss ? ' (ขาด: ' + hookMiss + ')' : ''), hooksOk);
+    // ทุก command .md จริง (ไม่ใช่ .en.md) ต้องอยู่ใน map
+    let cmdsOk = true, cmdMiss = '';
+    for (const f of readdirSync(join(REPO_ROOT, 'commands'))) {
+      if (f.endsWith('.md') && !f.endsWith('.en.md')) {
+        const rel = 'commands/' + f;
+        if (!srcsJ.includes(rel)) { cmdsOk = false; if (!cmdMiss) cmdMiss = rel; }
+      }
+    }
+    check('J ทุก command .md จริงใน repo อยู่ใน installMap' + (cmdMiss ? ' (ขาด: ' + cmdMiss + ')' : ''), cmdsOk);
+  }
 } finally {
+  // ชุดนี้ synchronous ทั้งหมด (spawnSync บล็อก event loop) → event 'exit'/'error' ของ worker
+  // ไม่มีโอกาส tick ระหว่างเทสต์ workerCrashed จึงเป็น false เสมอถ้าพึ่งแต่ event handler
+  // เช็ค liveness ตรงๆ: worker ที่ยัง run อยู่ threadId >= 0 · ถ้าตายกลางคัน (ยังไม่ terminate) threadId = -1
+  // (ใช้ threadId ไม่ใช่ exitCode — บน Node 22 exitCode ค้าง undefined แม้ worker exit ไปแล้ว)
+  if (worker && worker.threadId === -1) workerCrashed = true;
   shuttingDown = true;
   if (worker) await worker.terminate();
   rmSync(ROOT, { recursive: true, force: true });
 }
 
-// worker ล่มกลางคัน (นอกเหนือ terminate ตอนจบ) = FAIL
+// mock server ตายกลางคัน (threadId = -1 ก่อน terminate ตอนจบ) หรือยิง event 'error' = FAIL
 check('worker mock server ไม่ crash ระหว่างเทสต์', !workerCrashed);
 
 console.log(`\n${fail === 0 ? 'ALL PASS ✅' : 'FAILURES ❌'} — ${pass} pass, ${fail} fail`);

@@ -72,8 +72,8 @@ path ใน `settings.json` ต้องเป็น absolute:
 รัน selftest ทั้งสองชุด (ชุดแรกครอบ hook เตือน context · ชุดสองครอบ pipeline ติดตั้ง/อัปเดต — ต้องผ่านทั้งคู่):
 
 ```bash
-node ~/.claude/skills/handoff-guard/scripts/selftest.mjs           # hook context-guard — ต้องขึ้น ALL PASS (47 เคส)
-node <path repo>/scripts/updater-selftest.mjs                      # install/update pipeline — ต้องขึ้น ALL PASS (51 เคส) · รันจาก repo checkout เท่านั้น
+node ~/.claude/skills/handoff-guard/scripts/selftest.mjs           # hook context-guard — ต้องขึ้น ALL PASS
+node <path repo>/scripts/updater-selftest.mjs                      # install/update pipeline — ต้องขึ้น ALL PASS · รันจาก repo checkout เท่านั้น
 ```
 
 > `updater-selftest.mjs` ต้องรันจาก **repo checkout** (clone/worktree) ไม่ใช่จากสำเนาที่ติดตั้งใน `~/.claude` — มันทดสอบการติดตั้งจาก repo จริง จึงต้องเห็นทั้ง `hooks/` `commands/` ครบตามโครง repo

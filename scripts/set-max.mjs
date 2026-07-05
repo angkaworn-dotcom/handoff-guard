@@ -3,7 +3,7 @@
 // context-guard.mjs (Stop hook) จะอ่านไฟล์นี้ทุกเทิร์น (ไม่ต้อง restart session)
 // usage: node set-max.mjs <max>      -> ตั้ง MAX ใหม่, T1=72%, T2=85% (auto)
 //        node set-max.mjs <max> <t1> <t2>  -> ตั้งเองทั้ง 3 ค่า
-//        node set-max.mjs reset|default     -> ลบ config, กลับไปใช้ hardcoded default (256000)
+//        node set-max.mjs reset|default     -> ลบ config, กลับไป auto-detect เพดานจากโมเดล (fable/mythos 512k · opus 256k · sonnet/haiku 200k · [1m] 1M)
 import { mkdirSync, existsSync, writeFileSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';

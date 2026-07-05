@@ -69,9 +69,9 @@ node <repo>/scripts/updater-selftest.mjs                    # ALL PASS (32 cases
 
 | Want | Do |
 |--------|----|
-| Change the context ceiling (MAX) quickly, without touching settings.json | Run `/handoff-guard-max <max>` (e.g. `/handoff-guard-max 200000`) — auto-computes T1/T2 (72%/85%), writes `~/.claude/.handoff-guard/config.json`, takes effect next turn · `/handoff-guard-max reset` reverts to 256000 · install this command once: `cp commands/handoff-guard-max.md ~/.claude/commands/` |
-| Warn (absolute) earlier/later (manual/override) | env `HANDOFF_GUARD_THRESHOLD` (default 184320 = 72%×256k), `HANDOFF_GUARD_THRESHOLD2` (217600 = 85%×256k) — env always wins over config.json |
-| Change the context ceiling (display) (manual/override) | env `HANDOFF_GUARD_MAX` (default 256000) — beyond this, context quality starts degrading · if you change the ceiling, adjust T1/T2 to match (72%/85%) |
+| Change the context ceiling (MAX) quickly, without touching settings.json | Run `/handoff-guard-max <max>` (e.g. `/handoff-guard-max 200000`) — auto-computes T1/T2 (72%/85%), writes `~/.claude/.handoff-guard/config.json`, takes effect next turn · **pins every model** · `/handoff-guard-max reset` reverts to auto-detect per model · install this command once: `cp commands/handoff-guard-max.md ~/.claude/commands/` |
+| Warn (absolute) earlier/later (manual/override) | env `HANDOFF_GUARD_THRESHOLD` / `HANDOFF_GUARD_THRESHOLD2` (default = `round(MAX×0.72)` / `round(MAX×0.85)`) — env always wins over config.json |
+| Change the context ceiling (display) (manual/override) | env `HANDOFF_GUARD_MAX` (default = auto-detect per model) — beyond this, context quality starts degrading · if you change the ceiling, adjust T1/T2 to match (72%/85%) |
 | More/less predict lead time | env `HANDOFF_GUARD_PREDICT_TURNS` (K, default 3) — higher = warns earlier/softer, lower = waits until closer before warning |
 | More/less predict sensitivity to spikes | env `HANDOFF_GUARD_EMA_ALPHA` (default 0.4) — higher = reacts faster but jumpier with spikes, lower = smoother but laggier |
 | Auto-compact fires before 184k (warning doesn't arrive in time) | Lower the threshold (e.g. 200000) — observe from live use at what token count compaction actually happens |

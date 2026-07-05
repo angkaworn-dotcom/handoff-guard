@@ -28,6 +28,7 @@ const REAL_INSTALL = join(HERE, 'install.mjs');
 const REAL_UPDATE = join(HERE, 'update.mjs');
 const REAL_ENSURE = join(HERE, 'ensure-handoff.mjs');
 const REAL_PRUNE = join(HERE, 'prune-worktrees.mjs');
+const REAL_SETMAX = join(HERE, 'set-max.mjs');
 
 let pass = 0, fail = 0;
 const check = (name, cond) => {
@@ -427,6 +428,11 @@ try {
   const rK2 = kRun([...pruneArgs, '--dry'], wtOldC);
   check('K2 cwd ใน worktree → skip (self)', /skip \(self\)/.test(rK2.out));
 
+  // K2b: keep-list ต้อง match แบบ case-insensitive — norm() lowercase path เสมอ
+  // ถ้า keepList ไม่ lowercase ตาม `--keep-list WT-KEEPLIST` จะไม่ match แล้ว worktree ที่สั่งห้ามลบถูกลบ
+  const rK2b = kRun(['--repo', kRepo, '--keep', '0', '--keep-list', 'WT-KEEPLIST', '--dry']);
+  check('K2b keep-list ตัวพิมพ์ใหญ่ → ยัง skip (keep-list) (case-insensitive)', /skip \(keep-list\)/.test(rK2b.out));
+
   // K3: รันจริง --keep 1 — ลบเฉพาะ 3 ตัวเก่าสุดที่ clean, เก็บ old-c (ใหม่สุด), ผู้รอดครบ
   const rK3 = kRun(pruneArgs);
   check('K3 exit 0', rK3.status === 0);
@@ -450,6 +456,60 @@ try {
   check('K4 old-c ถูกลบ (keep 0 = ไม่เก็บ candidate เลย)', !existsSync(wtOldC) && !registeredK(wtOldC));
   check('K4 ผู้รอดทุกชั้นยังครบหลังกวาดรอบสอง',
     survivorsK.every((p) => existsSync(p)) && [wtDirty, wtLocked, wtKeepL, wtRecent, wtOutside].every((p) => registeredK(p)));
+
+  // ── L. set-max.mjs — เขียน config ต้อง merge (ไม่ทำลาย field อื่น) + floor t1 กันใส่ % ──
+  console.log('\n[L] set-max.mjs — merge config field ที่ไม่รู้จัก + floor t1/t2');
+  const homeL = mkdtempSync(join(ROOT, 'homeL-'));
+  const cfgL = join(homeL, '.claude', '.handoff-guard', 'config.json');
+  mkdirSync(dirname(cfgL), { recursive: true });
+  // windows = feature ที่ docs โฆษณาให้ user เติม regex→tokens เอง · custom = field อนาคตที่ยังไม่รู้จัก
+  writeFileSync(cfgL, JSON.stringify({ max: 100000, windows: { 'my-model': 123456 }, custom: 'keep-me' }));
+  const rL1 = runNode(REAL_SETMAX, ['200000'], { home: homeL });
+  let cfg1 = {};
+  try { cfg1 = JSON.parse(readFileSync(cfgL, 'utf8')); } catch { /* cfg1 ว่าง → FAIL ข้างล่าง */ }
+  check('L1 set-max 200000 exit 0 + max/t1/t2 auto ถูกต้อง',
+    rL1.status === 0 && cfg1.max === 200000 && cfg1.t1 === 144000 && cfg1.t2 === 170000);
+  check('L1 windows/custom field ไม่หาย (merge ไม่ใช่เขียนทับทั้งไฟล์)',
+    cfg1.windows && cfg1.windows['my-model'] === 123456 && cfg1.custom === 'keep-me');
+  const rL2 = runNode(REAL_SETMAX, ['0'], { home: homeL });
+  let cfg2 = {};
+  try { cfg2 = JSON.parse(readFileSync(cfgL, 'utf8')); } catch { /* FAIL ข้างล่าง */ }
+  check('L2 kill switch (0) → max=0 แต่ windows/custom ยังอยู่',
+    rL2.status === 0 && cfg2.max === 0 && cfg2.windows && cfg2.windows['my-model'] === 123456 && cfg2.custom === 'keep-me');
+  // t1/t2 ใส่เป็น % (เข้าใจผิด) — 85 token = block ทุก session ตั้งแต่เทิร์นแรก ต้องปฏิเสธ
+  const rL3 = runNode(REAL_SETMAX, ['200000', '72', '85'], { home: homeL });
+  let cfg3 = {};
+  try { cfg3 = JSON.parse(readFileSync(cfgL, 'utf8')); } catch { /* FAIL ข้างล่าง */ }
+  check('L3 t1/t2 ต่ำผิดปกติ (พิมพ์ % มา) → exit 1 + config เดิมไม่ถูกแตะ',
+    rL3.status === 1 && cfg3.max === 0 && cfg3.custom === 'keep-me');
+
+  // ── M. update full ที่ส่วน handoff fail — ห้ามพิมพ์ 🎉 banner ให้ model อ่านแล้วรายงานผิด ──
+  // tarball ปกติ (ส่วน 1 สำเร็จ) แต่ upstream ของ skill handoff = 404 → r2.status ≠ 0 → fail=true
+  console.log('\n[M] update full · ส่วน handoff ล้มเหลว → exit 1 + ไม่มี banner ฉลอง');
+  const homeM = mkdtempSync(join(ROOT, 'homeM-'));
+  const rM = runNode(REAL_UPDATE, [], {
+    home: homeM,
+    extraEnv: { HANDOFF_GUARD_SELF_TARBALL: TARBALL_URL, HANDOFF_GUARD_HANDOFF_RAW: `http://127.0.0.1:${PORT}/offline-404` },
+  });
+  check('M exit 1 (ส่วน handoff fail)', rM.status === 1);
+  // เจาะจง banner สรุปท้ายของ update.mjs — 🎉 ของ install.mjs (ส่วน 1 ที่สำเร็จจริง) ไม่นับ
+  check('M ไม่มี banner "🎉 อัปเดตเสร็จ" ทั้งที่ fail', !rM.out.includes('🎉 อัปเดตเสร็จ'));
+  check('M รายงานว่าส่วน handoff ล้มเหลวชัดเจน', /handoff ล้มเหลว/.test(rM.out));
+
+  // ── N. ensure-handoff — SKILL.md torn (ว่าง/เขียนค้าง) ต้อง self-heal ไม่ใช่ "already installed" ──
+  console.log('\n[N] ensure-handoff · SKILL.md torn → reinstall จาก vendored (ไม่แตะเน็ต)');
+  const homeN = mkdtempSync(join(ROOT, 'homeN-'));
+  const tornN = join(homeN, '.claude', 'skills', 'handoff', 'SKILL.md');
+  mkdirSync(dirname(tornN), { recursive: true });
+  writeFileSync(tornN, '');   // ไฟล์ว่าง = เขียนค้างตอน crash/ENOSPC
+  const rN = runNode(REAL_ENSURE, [], { home: homeN, extraEnv: offlineEnv });
+  check('N exit 0', rN.status === 0);
+  check('N ไม่รายงาน already installed ทั้งที่ไฟล์ torn', !/already installed/.test(rN.out));
+  check('N เนื้อถูก heal จาก vendored (มี name: handoff)',
+    /name:\s*handoff/.test(readFileSync(tornN, 'utf8')));
+  // ไฟล์สมบูรณ์อยู่แล้ว → ยังต้อง already installed (ไม่เขียนทับซ้ำทุกรอบ)
+  const rN2 = runNode(REAL_ENSURE, [], { home: homeN, extraEnv: offlineEnv });
+  check('N2 รันซ้ำหลัง heal → already installed', rN2.status === 0 && /already installed/.test(rN2.out));
 
 } finally {
   // ชุดนี้ synchronous ทั้งหมด (spawnSync บล็อก event loop) → event 'exit'/'error' ของ worker

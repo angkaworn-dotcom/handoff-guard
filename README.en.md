@@ -123,3 +123,9 @@ Full details in [SETUP.md](SETUP.md) · V2 design in [docs/V2-design.md](docs/V2
 The hand-off doc is produced by Matt Pocock's `handoff` skill ([mattpocock/skills](https://github.com/mattpocock/skills)) · `vendor/handoff/` is a pinned copy used as the primary install source (upstream is fetched only if the copy is missing — content injected into Claude's context should be a reviewed version, not a live main branch) (© Matt Pocock).
 
 Update to the latest version (both handoff-guard itself and Matt's `handoff`) in one command: type `/handoff-guard-update` in chat, or run `node ~/.claude/skills/handoff-guard/scripts/update.mjs --check` to see what's new, then run it without `--check` to take it (previous versions are backed up as `.bak` · restart the session afterwards) — updating is always an explicit command, never an automatic pull · to update only Matt's part: `ensure-handoff.mjs --update`.
+
+## License
+
+[MIT](LICENSE) — free to use, modify, and redistribute; just keep the copyright notice.
+
+The bundled `handoff` skill under `vendor/handoff/` is Matt Pocock's work, redistributed under its own MIT license (© 2026 Matt Pocock) — see [vendor/handoff/LICENSE](vendor/handoff/LICENSE).

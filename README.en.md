@@ -72,8 +72,8 @@ Paths in `settings.json` must be absolute:
 Run both self-test suites (the first covers the context-warning hook · the second covers the install/update pipeline — both must pass):
 
 ```bash
-node ~/.claude/skills/handoff-guard/scripts/selftest.mjs   # context-guard hook — should print ALL PASS (47 cases)
-node <repo path>/scripts/updater-selftest.mjs              # install/update pipeline — should print ALL PASS (51 cases) · run from a repo checkout only
+node ~/.claude/skills/handoff-guard/scripts/selftest.mjs   # context-guard hook — should print ALL PASS
+node <repo path>/scripts/updater-selftest.mjs              # install/update pipeline — should print ALL PASS · run from a repo checkout only
 ```
 
 > `updater-selftest.mjs` must be run from a **repo checkout** (clone/worktree), not from the installed copy under `~/.claude` — it tests installing from the real repo, so it needs the full repo layout including `hooks/` and `commands/`.

@@ -43,8 +43,8 @@ try {
     try {
       const st = statSync(fp);
       if (Date.now() - st.mtimeMs > MAX_AGE_DAYS * 864e5) continue; // งานเก่าเกิน — ข้าม
-      // strip BOM — pointer ที่เผลอเขียนด้วย PowerShell -Encoding utf8 จะมี ﻿ นำหน้า → JSON.parse throw แบบเงียบ
-      const { cwd: pc, handoff } = JSON.parse(readFileSync(fp, 'utf8').replace(/^﻿/, ''));
+      // strip BOM — pointer ที่เผลอเขียนด้วย PowerShell -Encoding utf8 จะมี U+FEFF นำหน้า → JSON.parse throw แบบเงียบ
+      const { cwd: pc, handoff } = JSON.parse(readFileSync(fp, 'utf8').replace(/^\uFEFF/, ''));
       const pcn = norm(pc);
       if (!pcn || !handoff) continue;
       // ทิศ session-ลึกกว่า (here ใต้ pcn) ยอมทั่วไป: เปิดที่ subdir/worktree ของโปรเจกต์ pointer = เรื่องเดียวกัน
@@ -68,7 +68,7 @@ try {
 // สรุป handoff สั้นๆ สำหรับโชว์ผู้ใช้ทันที (systemMessage) — title + สถานะ + งานถัดไปข้อแรก
 function summarizeHandoff(path) {
   try {
-    const lines = readFileSync(path, 'utf8').replace(/^﻿/, '').split(/\r?\n/);
+    const lines = readFileSync(path, 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/);
     const clip = (s) => { s = s.replace(/\*\*|`/g, ''); return s.length > 140 ? s.slice(0, 137) + '…' : s; };
     const title = (lines.find((l) => l.startsWith('# ')) || '').replace(/^#\s*(Handoff\s*[—-]\s*)?/i, '').trim();
     const status = (lines.find((l) => /^##\s*(สถานะ|Status)/i.test(l)) || '').replace(/^##\s*/, '').trim();

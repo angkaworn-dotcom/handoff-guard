@@ -16,7 +16,7 @@
 import { Worker } from 'node:worker_threads';
 import { spawnSync, execFileSync } from 'node:child_process';
 import {
-  mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync,
+  mkdtempSync, mkdirSync, writeFileSync, appendFileSync, readFileSync, existsSync, rmSync, readdirSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
@@ -29,6 +29,7 @@ const REAL_UPDATE = join(HERE, 'update.mjs');
 const REAL_ENSURE = join(HERE, 'ensure-handoff.mjs');
 const REAL_PRUNE = join(HERE, 'prune-worktrees.mjs');
 const REAL_SETMAX = join(HERE, 'set-max.mjs');
+const REAL_STATS = join(HERE, 'handoff-stats.mjs');
 const REAL_SCAN = join(HERE, 'scan-preload.mjs');
 
 let pass = 0, fail = 0;
@@ -618,6 +619,75 @@ try {
     } else {
       console.log('  SKIP Q2 — เฉพาะ win32 (Linux fs case-sensitive โดยเจตนา)');
     }
+  }
+
+  // ── R. handoff-stats.mjs — record-handoff/record-resume/summary (F1) ──────────
+  // hermetic: ยิง script จริงในบ้านปลอม · summary คำนวณจาก fixture ที่รู้คำตอบ (ไม่ derive)
+  console.log('\n[R] handoff-stats.mjs — record + summary (F1)');
+  const homeR = mkdtempSync(join(ROOT, 'homeR-'));
+  const statsR = join(homeR, '.claude', '.handoff-guard', 'stats.jsonl');
+  const projR = join(ROOT, 'projR');
+  // doc content: 400 ascii + 3 thai → estTokens = ceil(400/4 + 3/1.5) = 102 · bytes = 400 + 9 = 409
+  const docR = join(homeR, 'handoff-r.md');
+  mkdirSync(homeR, { recursive: true });
+  writeFileSync(docR, 'a'.repeat(400) + 'กขค', 'utf8');
+
+  // R1: record-handoff เนื้อครบ → 1 บรรทัด, field คำนวณถูก
+  const rR1 = runNode(REAL_STATS, ['record-handoff', '--project', projR, '--tokens', '90000',
+    '--max', '200000', '--model', 'fable-5', '--doc', docR, '--turns', '10', '--rate', '5000'], { home: homeR });
+  let recR1 = {};
+  try { recR1 = JSON.parse(readFileSync(statsR, 'utf8').trim().split('\n').pop()); } catch { /* FAIL ข้างล่าง */ }
+  check('R1 record-handoff exit 0 + append บรรทัดเดียว',
+    rR1.status === 0 && existsSync(statsR) && readFileSync(statsR, 'utf8').trim().split('\n').length === 1);
+  check('R1 field พื้นฐานถูก (v/kind/tokens/model/turns/rate)',
+    recR1.v === 1 && recR1.kind === 'handoff' && recR1.tokens === 90000
+    && recR1.model === 'fable-5' && recR1.turns === 10 && recR1.rate === 5000);
+  check('R1 doc metrics ถูกตาม heuristic (est=102, bytes=409, ratio=882.4)',
+    recR1.docTokensEst === 102 && recR1.docBytes === 409 && recR1.compressionRatio === 882.4);
+  check('R1 project เป็น slug (มีค่า ไม่มีอักขระต้องห้าม)',
+    typeof recR1.project === 'string' && recR1.project.length > 0 && !/[^a-z0-9฀-๿-]/.test(recR1.project));
+
+  // R2: doc ไม่มีจริง → doc metrics = null แต่ record อื่นยังบันทึก
+  const rR2 = runNode(REAL_STATS, ['record-handoff', '--project', projR, '--tokens', '60000',
+    '--max', '200000', '--model', 'fable-5', '--doc', join(homeR, 'nope.md'), '--turns', '20', '--rate', '3000'], { home: homeR });
+  let recR2 = {};
+  try { recR2 = JSON.parse(readFileSync(statsR, 'utf8').trim().split('\n').pop()); } catch { /* FAIL */ }
+  check('R2 doc อ่านไม่ได้ → docBytes/est/ratio = null, tokens ยังบันทึก',
+    rR2.status === 0 && recR2.tokens === 60000 && recR2.docBytes === null
+    && recR2.docTokensEst === null && recR2.compressionRatio === null);
+
+  // R3: record-resume pass + fail
+  const rR3a = runNode(REAL_STATS, ['record-resume', '--project', projR, '--verify', 'pass'], { home: homeR });
+  const rR3b = runNode(REAL_STATS, ['record-resume', '--project', projR, '--verify', 'fail'], { home: homeR });
+  let recR3 = {};
+  try { recR3 = JSON.parse(readFileSync(statsR, 'utf8').trim().split('\n').pop()); } catch { /* FAIL */ }
+  check('R3 record-resume pass+fail exit 0 + kind=resume',
+    rR3a.status === 0 && rR3b.status === 0 && recR3.kind === 'resume' && recR3.verify === 'fail');
+
+  // R4: summary --project → คำนวณถูก (tokens avg 75000/median 75000, turns avg 15, rate 4000, ratio 882.4, resume 1/2 50%)
+  const rR4 = runNode(REAL_STATS, ['summary', '--project', projR], { home: homeR });
+  check('R4 summary exit 0 + handoffs 2', rR4.status === 0 && /handoffs:\s*2/.test(rR4.out));
+  check('R4 tokens avg 75000 · median 75000', /avg 75000/.test(rR4.out) && /median 75000/.test(rR4.out));
+  check('R4 turns avg 15 · rate 4000 · compression 882.4',
+    /avg 15/.test(rR4.out) && /4000/.test(rR4.out) && /882\.4/.test(rR4.out));
+  check('R4 resume 1/2 (50%)', /1\/2/.test(rR4.out) && /50%/.test(rR4.out));
+
+  // R5: บรรทัดเสีย → summary ข้าม ไม่ crash, ตัวเลข handoff คงเดิม
+  appendFileSync(statsR, '{ นี่บรรทัดเสีย ไม่ใช่ json\n', 'utf8');
+  const rR5 = runNode(REAL_STATS, ['summary', '--project', projR], { home: homeR });
+  check('R5 บรรทัดเสียถูกข้าม → exit 0 + handoffs ยัง 2', rR5.status === 0 && /handoffs:\s*2/.test(rR5.out));
+
+  // R6: ไม่มีไฟล์เลย → "ยังไม่มีข้อมูล" exit 0
+  const homeR6 = mkdtempSync(join(ROOT, 'homeR6-'));
+  const rR6 = runNode(REAL_STATS, ['summary'], { home: homeR6 });
+  check('R6 ไม่มีข้อมูล → exit 0 + "ยังไม่มีข้อมูล"', rR6.status === 0 && /ยังไม่มีข้อมูล/.test(rR6.out));
+
+  // R7: installMap (repo จริง) ต้องรวม scripts/handoff-stats.mjs (walk auto-include)
+  if (repoLayoutJ) {
+    const srcsR = installMap(REPO_ROOT, join(ROOT, 'fakeR', '.claude')).map(([src]) => src.replace(/\\/g, '/'));
+    check('R7 installMap รวม scripts/handoff-stats.mjs', srcsR.includes('scripts/handoff-stats.mjs'));
+  } else {
+    console.log('  SKIP R7 — ไม่ได้อยู่ repo layout');
   }
 
   // ── S. scan-preload.mjs — attribution ของ preload context (F2) ────────────────

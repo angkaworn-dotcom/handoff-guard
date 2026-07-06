@@ -30,6 +30,8 @@ Protects work from being lost when context is nearly full — the `context-guard
 | **tier1** (tokens ≥ T1) + mid-way through a large task with many steps left | Close the current step safely → **hand off** |
 | **tier1** + work nearly done in 1-2 short steps | Finish that step → **hand off immediately** (do not start anything big) |
 
+> **ROI (if present in the hook message — F4)**: the `💰 ROI(est): … · <label>` line is *supplementary* to the decision, not a command — a high ROI / a `Recommended`/`Critical` label = lean toward handing off sooner · but **tier still sets the primary urgency** (tier2/`Critical` = always immediate) · the numbers are an *estimated range from stats* (the "remaining turns" input is a guess) — don't treat them as precise; the final call is the AI's per the V2 principle · the more stats (F1) accumulate, the narrower the range (adaptive by nature — no separate per-project threshold).
+
 ### 3. If the decision is to hand off
 1. Write the **handoff doc yourself** following the `handoff` skill's format (Matt Pocock) — **do NOT invoke it via the Skill tool**: that skill sets `disable-model-invocation: true` on purpose (the model cannot invoke it) · **what matters is the doc, not who writes it**
    - Source format: `Read ~/.claude/skills/handoff/SKILL.md` and follow all of it (has a suggested-skills section · reference existing artifacts by path/URL, don't duplicate · redact secrets · tailor to the next session's focus) + **always add (guard): atomic/uncommitted, worktree/branch/env, BLOCKED**
@@ -54,6 +56,7 @@ Protects work from being lost when context is nearly full — the `context-guard
    - The per-worktree pointer is still written per item 3, always (the /clear path needs it · chip and pointer coexist)
    > **Do not cut the 3 steps (move node_modules / codebase check / prune) from the chip prompt** — spawn_task always creates a new worktree when the chip is pressed (no opt-out) and the real disk hog is `node_modules` → moving it from the old home = no fresh npm install · the old worktree becomes a light snapshot; keep the 5 newest · **branches are never deleted** — every point is always recoverable via `git worktree add <path> <branch>` · pin against pruning: `git worktree lock <path>` or `--keep-list name1,name2` · full rationale: `specs/2026-07-02-chip-revival-d2-design.md`
 5. Tell the user clearly: "context is ~Xk — **press the chip 'ต่อ <N>. <focus>' to open the follow-up session** (the old chat stays for reference), or type `/clear` if you don't need the old chat · the handoff will load automatically → `<handoff path>`" + a 2-3 line summary of pending work
+6. **Record handoff stats (best-effort — F1)**: `node ~/.claude/skills/handoff-guard/scripts/handoff-stats.mjs record-handoff --project "<mainRepoRoot>" --tokens <tokens> --max <MAX> --model <model> --doc "<handoff path>" --turns <turns> --rate <rate>` — read `tokens`/`rate`/`MAX`/`model` from the bracket in the additionalContext the hook attached (`turns` may be omitted if unknown) · **on failure just skip it, no impact on the flow** (stats matter less than the handoff) · this data feeds the ROI engine (F4) — see `specs/2026-07-06-session-economics-design.md`
 
 ### 4. If the decision is to keep going
 - Finish only the pending step, then come back and hand off (the marker suppresses repeat warnings until the next tier)
@@ -67,6 +70,7 @@ The SessionStart hook injects a pointer to the handoff doc · shows a summary (t
 3. **The project's validation gate** — state isn't broken from the previous session (use whatever the project has, e.g. `npm run check` / `npm test` / lint · no gate → skip this item)
 4. **Does the pending work in the handoff match the actual code?** — open the files the handoff references and confirm they're in the stated condition → then continue
 5. **Close the loop: when the work in the handoff is done (or the user switches to something else) → delete the pointer file** (its path is in the hook's injected message) — an undeleted pointer = the old task pops up on every `/clear` until it expires in 7 days · the doc in `handoffs/` stays; no need to delete it
+6. **Record the resume result (best-effort — F1)**: after verify items 1-4, run `node ~/.claude/skills/handoff-guard/scripts/handoff-stats.mjs record-resume --project "<mainRepoRoot>" --verify pass|fail` per the real outcome (all items passed = `pass` · state mismatch/broken = `fail`) — on failure just skip it, no impact on the flow
 
 > If verification **doesn't match** (e.g. the handoff says "committed" but git still shows pending, or the build fails despite the handoff saying it passed) → **inform the user first; do NOT continue on top of it** — the handoff may have been written while the previous session was dying, so its state may be incomplete
 

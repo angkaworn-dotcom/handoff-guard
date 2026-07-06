@@ -30,6 +30,8 @@ Protects work from being lost when context is nearly full — the `context-guard
 | **tier1** (tokens ≥ T1) + mid-way through a large task with many steps left | Close the current step safely → **hand off** |
 | **tier1** + work nearly done in 1-2 short steps | Finish that step → **hand off immediately** (do not start anything big) |
 
+> **ROI (if present in the hook message — F4)**: the `💰 ROI(est): … · <label>` line is *supplementary* to the decision, not a command — a high ROI / a `Recommended`/`Critical` label = lean toward handing off sooner · but **tier still sets the primary urgency** (tier2/`Critical` = always immediate) · the numbers are an *estimated range from stats* (the "remaining turns" input is a guess) — don't treat them as precise; the final call is the AI's per the V2 principle · the more stats (F1) accumulate, the narrower the range (adaptive by nature — no separate per-project threshold).
+
 ### 3. If the decision is to hand off
 1. Write the **handoff doc yourself** following the `handoff` skill's format (Matt Pocock) — **do NOT invoke it via the Skill tool**: that skill sets `disable-model-invocation: true` on purpose (the model cannot invoke it) · **what matters is the doc, not who writes it**
    - Source format: `Read ~/.claude/skills/handoff/SKILL.md` and follow all of it (has a suggested-skills section · reference existing artifacts by path/URL, don't duplicate · redact secrets · tailor to the next session's focus) + **always add (guard): atomic/uncommitted, worktree/branch/env, BLOCKED**

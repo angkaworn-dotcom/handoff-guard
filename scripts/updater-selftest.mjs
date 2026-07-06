@@ -30,6 +30,7 @@ const REAL_ENSURE = join(HERE, 'ensure-handoff.mjs');
 const REAL_PRUNE = join(HERE, 'prune-worktrees.mjs');
 const REAL_SETMAX = join(HERE, 'set-max.mjs');
 const REAL_STATS = join(HERE, 'handoff-stats.mjs');
+const REAL_SCAN = join(HERE, 'scan-preload.mjs');
 
 let pass = 0, fail = 0;
 const check = (name, cond) => {
@@ -687,6 +688,61 @@ try {
     check('R7 installMap รวม scripts/handoff-stats.mjs', srcsR.includes('scripts/handoff-stats.mjs'));
   } else {
     console.log('  SKIP R7 — ไม่ได้อยู่ repo layout');
+  }
+
+  // ── S. scan-preload.mjs — attribution ของ preload context (F2) ────────────────
+  // hermetic: fake home + fake project, เนื้อไฟล์รู้ค่า → est ตาม heuristic ตรงเป๊ะ
+  console.log('\n[S] scan-preload.mjs — preload attribution (F2)');
+  const homeS = mkdtempSync(join(ROOT, 'homeS-'));
+  const claudeS = join(homeS, '.claude');
+  const projS = join(ROOT, 'projS');
+  mkdirSync(join(claudeS, 'skills', 'sk1'), { recursive: true });
+  mkdirSync(join(claudeS, 'skills', 'big'), { recursive: true });
+  mkdirSync(join(claudeS, 'commands'), { recursive: true });
+  mkdirSync(projS, { recursive: true });
+  writeFileSync(join(claudeS, 'CLAUDE.md'), 'a'.repeat(400), 'utf8');          // 400 ascii → est 100
+  writeFileSync(join(projS, 'CLAUDE.md'), 'a'.repeat(40), 'utf8');             // 40 ascii → est 10
+  writeFileSync(join(claudeS, 'skills', 'sk1', 'SKILL.md'),
+    '---\nname: sk1\ndescription: hello world description\n---\n\nbody body body\n', 'utf8');
+  writeFileSync(join(claudeS, 'skills', 'big', 'SKILL.md'), 'a'.repeat(1024 * 1024 + 10), 'utf8'); // >1MB → skipped
+  writeFileSync(join(claudeS, 'commands', 'c1.md'), '---\ndescription: a command\n---\n\nbody\n', 'utf8');
+  writeFileSync(join(claudeS, 'settings.json'), '{}', 'utf8');
+
+  const catBy = (json, key) => (json.categories || []).find((c) => c.key === key) || {};
+  const rS1 = runNode(REAL_SCAN, ['--project', projS, '--json'], { home: homeS });
+  let jS = {};
+  try { jS = JSON.parse(rS1.out); } catch { /* FAIL ข้างล่าง */ }
+  check('S1 --json exit 0 + parse ได้ + max default 200000', rS1.status === 0 && jS.max === 200000);
+  check('S2 user CLAUDE.md est=100 · project CLAUDE.md est=10 (heuristic ตรง)',
+    catBy(jS, 'user-claude-md').estTokens === 100 && catBy(jS, 'project-claude-md').estTokens === 10);
+  check('S3 totalEstTokens = ผลรวมทุกหมวด',
+    typeof jS.totalEstTokens === 'number'
+    && jS.totalEstTokens === (jS.categories || []).reduce((a, c) => a + c.estTokens, 0)
+    && jS.totalEstTokens > 0);
+  check('S4 ไฟล์ >1MB ถูกข้าม (skipped ≥ 1)', jS.skipped >= 1);
+  check('S5 skill-descriptions มาจาก frontmatter (est > 0, พบ 2 ไฟล์รวม big)',
+    catBy(jS, 'skill-descriptions').estTokens > 0 && catBy(jS, 'skill-descriptions').files === 2);
+
+  // text mode
+  const rS6 = runNode(REAL_SCAN, ['--project', projS], { home: homeS });
+  check('S6 text mode exit 0 + มี "รวม preload" + "%"',
+    rS6.status === 0 && /รวม preload/.test(rS6.out) && /%/.test(rS6.out));
+
+  // --max override
+  const rS7 = runNode(REAL_SCAN, ['--project', projS, '--max', '100000', '--json'], { home: homeS });
+  let jS7 = {};
+  try { jS7 = JSON.parse(rS7.out); } catch { /* FAIL */ }
+  check('S7 --max override → max=100000', rS7.status === 0 && jS7.max === 100000);
+
+  // installMap ต้องรวม scan-preload.mjs + command scan (.md) แต่ไม่รวม .en.md
+  if (repoLayoutJ) {
+    const srcsS = installMap(REPO_ROOT, join(ROOT, 'fakeS', '.claude')).map(([src]) => src.replace(/\\/g, '/'));
+    check('S8 installMap รวม scripts/scan-preload.mjs + commands/handoff-guard-scan.md',
+      srcsS.includes('scripts/scan-preload.mjs') && srcsS.includes('commands/handoff-guard-scan.md'));
+    check('S8 installMap ไม่รวม handoff-guard-scan.en.md',
+      !srcsS.includes('commands/handoff-guard-scan.en.md'));
+  } else {
+    console.log('  SKIP S8 — ไม่ได้อยู่ repo layout');
   }
 
 } finally {

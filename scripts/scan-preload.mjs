@@ -33,9 +33,13 @@ function parseArgs(argv) {
 const args = parseArgs(process.argv.slice(2));
 const project = typeof args.project === 'string' ? args.project : process.cwd();
 
-// เพดานสำหรับ % — env/arg > config.json > 200000
+// เพดานสำหรับ % — arg > env HANDOFF_GUARD_MAX > config.json > 200000
+// (arg ชัดเจนต่อครั้งชนะ env — ต่างจาก hook ที่ไม่มี arg · model auto-detect ทำไม่ได้ที่นี่
+//  เพราะไม่มี transcript ให้อ่าน — ถ้าไม่ pin config แนะนำส่ง --max ตามเพดานโมเดลจริง)
 function resolveMax() {
   if (typeof args.max === 'string' && Number.isFinite(Number(args.max))) return Number(args.max);
+  const envMax = Number(process.env.HANDOFF_GUARD_MAX);
+  if (Number.isFinite(envMax) && envMax > 0) return envMax;
   try {
     const c = JSON.parse(readFileSync(join(claude, '.handoff-guard', 'config.json'), 'utf8'));
     if (c && Number(c.max) > 0) return Number(c.max);
@@ -60,7 +64,10 @@ function estFile(path, transform = (s) => s) {
   try {
     if (!existsSync(path)) return 0;
     if (statSync(path).size > MAX_FILE) { skipped++; return 0; }
-    const est = estTokens(transform(readFileSync(path, 'utf8')));
+    // strip BOM — ไฟล์ .md จาก editor บน Windows มักมี BOM (U+FEFF) นำหน้า ทำ frontmatter regex ^--- ไม่ match
+    // (precedent เดียวกับ session-resume.mjs · ใช้ charCodeAt เลี่ยงการฝัง BOM ใน source เอง)
+    const raw = readFileSync(path, 'utf8');
+    const est = estTokens(transform(raw.charCodeAt(0) === 0xFEFF ? raw.slice(1) : raw));
     if (est > 0) topFiles.push({ path, est });
     return est;
   } catch { skipped++; return 0; }

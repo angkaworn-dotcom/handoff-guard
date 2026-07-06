@@ -682,6 +682,23 @@ try {
   const rR6 = runNode(REAL_STATS, ['summary'], { home: homeR6 });
   check('R6 ไม่มีข้อมูล → exit 0 + "ยังไม่มีข้อมูล"', rR6.status === 0 && /ยังไม่มีข้อมูล/.test(rR6.out));
 
+  // R8: flag เปล่า/ค่าว่าง → null ไม่ใช่เลขปลอม (Number(true)=1, Number('')=0 เคยปนสถิติ
+  //     แล้วผ่าน filter typeof==='number' ลาก p25/p75 ของ F4 เพี้ยนเงียบ)
+  const homeR8 = mkdtempSync(join(ROOT, 'homeR8-'));
+  const statsR8 = join(homeR8, '.claude', '.handoff-guard', 'stats.jsonl');
+  const rR8 = runNode(REAL_STATS, ['record-handoff', '--project', projR, '--tokens', '90000',
+    '--turns', '--rate', ''], { home: homeR8 });
+  let recR8 = {};
+  try { recR8 = JSON.parse(readFileSync(statsR8, 'utf8').trim().split('\n').pop()); } catch { /* FAIL ข้างล่าง */ }
+  check('R8 bare --turns → null (ไม่ใช่ 1) · --rate "" → null (ไม่ใช่ 0)',
+    rR8.status === 0 && recR8.turns === null && recR8.rate === null && recR8.tokens === 90000);
+
+  // R9: bare --project (parseArgs ให้ boolean true) → ต้อง error ไม่ใช่บันทึกใต้โปรเจกต์ผี slug('true')
+  const rR9a = runNode(REAL_STATS, ['record-handoff', '--project', '--tokens', '90000'], { home: homeR8 });
+  const rR9b = runNode(REAL_STATS, ['record-resume', '--project', '--verify', 'pass'], { home: homeR8 });
+  check('R9 bare --project → exit≠0 ทั้ง record-handoff/record-resume (ไม่เกิดโปรเจกต์ "true")',
+    rR9a.status !== 0 && rR9b.status !== 0);
+
   // R7: installMap (repo จริง) ต้องรวม scripts/handoff-stats.mjs (walk auto-include)
   if (repoLayoutJ) {
     const srcsR = installMap(REPO_ROOT, join(ROOT, 'fakeR', '.claude')).map(([src]) => src.replace(/\\/g, '/'));
@@ -733,6 +750,31 @@ try {
   let jS7 = {};
   try { jS7 = JSON.parse(rS7.out); } catch { /* FAIL */ }
   check('S7 --max override → max=100000', rS7.status === 0 && jS7.max === 100000);
+
+  // S9: env HANDOFF_GUARD_MAX ต้องถูก honor (comment ในไฟล์อ้าง env มาตลอดแต่โค้ดเคยไม่อ่าน
+  //     → % คิดจากเพดานคนละตัวกับ hook) · --max ยังชนะ env
+  const rS9 = runNode(REAL_SCAN, ['--project', projS, '--json'], { home: homeS, extraEnv: { HANDOFF_GUARD_MAX: '512000' } });
+  let jS9 = {};
+  try { jS9 = JSON.parse(rS9.out); } catch { /* FAIL */ }
+  const rS9b = runNode(REAL_SCAN, ['--project', projS, '--max', '100000', '--json'], { home: homeS, extraEnv: { HANDOFF_GUARD_MAX: '512000' } });
+  let jS9b = {};
+  try { jS9b = JSON.parse(rS9b.out); } catch { /* FAIL */ }
+  check('S9 env HANDOFF_GUARD_MAX=512000 → max ตาม env (ตรงกับที่ hook ใช้)', rS9.status === 0 && jS9.max === 512000);
+  check('S9 --max ชนะ env (arg ชัดเจนต่อครั้ง > env)', rS9b.status === 0 && jS9b.max === 100000);
+
+  // S10: SKILL.md ที่มี BOM นำหน้า → frontmatter regex ต้องยัง match (นับเฉพาะ description
+  //      ไม่ fallback ไปกิน 400 char แรกทั้ง delimiter) — เทียบ est กับไฟล์เนื้อเดียวกันไม่มี BOM
+  mkdirSync(join(claudeS, 'skills', 'bom1'), { recursive: true });
+  mkdirSync(join(claudeS, 'skills', 'bom2'), { recursive: true });
+  const fmBody = '---\nname: bomtest\ndescription: same content for both\n---\n\n' + 'x'.repeat(800) + '\n';
+  writeFileSync(join(claudeS, 'skills', 'bom1', 'SKILL.md'), fmBody, 'utf8');
+  writeFileSync(join(claudeS, 'skills', 'bom2', 'SKILL.md'), Buffer.concat([Buffer.from([0xEF, 0xBB, 0xBF]), Buffer.from(fmBody, 'utf8')]));
+  const rS10 = runNode(REAL_SCAN, ['--project', projS, '--json'], { home: homeS });
+  let jS10 = {};
+  try { jS10 = JSON.parse(rS10.out); } catch { /* FAIL */ }
+  const bomFiles = (jS10.topFiles || []).filter((f) => /bom[12]/.test(f.path));
+  check('S10 SKILL.md มี BOM → est เท่าไฟล์ไม่มี BOM (frontmatter ยัง match ไม่ fallback 400 char)',
+    rS10.status === 0 && bomFiles.length === 2 && bomFiles[0].est === bomFiles[1].est);
 
   // installMap ต้องรวม scan-preload.mjs + command scan (.md) แต่ไม่รวม .en.md
   if (repoLayoutJ) {

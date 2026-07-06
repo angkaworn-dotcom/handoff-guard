@@ -11,7 +11,7 @@
 //   record-handoff --project <mainRepoRoot> --tokens <n> --max <n> --model <id> --doc <path> --turns <n> --rate <n>
 //   record-resume  --project <mainRepoRoot> --verify pass|fail
 //   summary        [--project <mainRepoRoot>]
-import { mkdirSync, appendFileSync, readFileSync, existsSync, statSync } from 'node:fs';
+import { mkdirSync, appendFileSync, readFileSync, existsSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -47,10 +47,17 @@ function parseArgs(argv) {
 }
 
 // number flag → Number ถ้าเป็นเลขจริง ไม่งั้น null (missing/NaN ไม่พังทั้ง record)
+// flag เปล่า (parseArgs ให้ boolean true) / ค่าว่าง "" → null ด้วย — Number(true)=1, Number('')=0
+// เป็นเลขปลอมที่ผ่าน filter typeof==='number' แล้วลาก p25/p75 ของ F4 เพี้ยนเงียบ
 const num = (v) => {
+  if (typeof v === 'boolean' || v === '' || v == null) return null;
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
 };
+
+// --project ต้องเป็น path จริง (string ไม่ว่าง) — flag เปล่าให้ boolean true ซึ่ง slug(true)='true'
+// จะ mis-bucket record ใต้โปรเจกต์ผี 'true' แบบเงียบ
+const projectOf = (args) => (typeof args.project === 'string' && args.project ? args.project : null);
 
 function appendRecord(obj) {
   mkdirSync(dir, { recursive: true });
@@ -80,7 +87,8 @@ const median = (arr) => {
 const avg = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null);
 
 function cmdRecordHandoff(args) {
-  if (!args.project) { console.error('❌ record-handoff ต้องมี --project <mainRepoRoot>'); process.exit(1); }
+  const project = projectOf(args);
+  if (!project) { console.error('❌ record-handoff ต้องมี --project <mainRepoRoot>'); process.exit(1); }
   let docBytes = null, docTokensEst = null, compressionRatio = null;
   if (typeof args.doc === 'string' && existsSync(args.doc)) {
     try {
@@ -94,7 +102,7 @@ function cmdRecordHandoff(args) {
     compressionRatio = Math.round((tokens / docTokensEst) * 10) / 10;
   }
   appendRecord({
-    v: 1, kind: 'handoff', ts: new Date().toISOString(), project: slug(args.project),
+    v: 1, kind: 'handoff', ts: new Date().toISOString(), project: slug(project),
     tokens, max: num(args.max), model: typeof args.model === 'string' ? args.model : null,
     turns: num(args.turns), rate: num(args.rate),
     docBytes, docTokensEst, compressionRatio,
@@ -103,15 +111,17 @@ function cmdRecordHandoff(args) {
 }
 
 function cmdRecordResume(args) {
-  if (!args.project) { console.error('❌ record-resume ต้องมี --project <mainRepoRoot>'); process.exit(1); }
+  const project = projectOf(args);
+  if (!project) { console.error('❌ record-resume ต้องมี --project <mainRepoRoot>'); process.exit(1); }
   const verify = args.verify === 'pass' ? 'pass' : args.verify === 'fail' ? 'fail' : null;
-  appendRecord({ v: 1, kind: 'resume', ts: new Date().toISOString(), project: slug(args.project), verify });
+  appendRecord({ v: 1, kind: 'resume', ts: new Date().toISOString(), project: slug(project), verify });
   console.log('✅ บันทึก resume stats แล้ว');
 }
 
 function cmdSummary(args) {
   let records = readRecords();
-  const scope = args.project ? slug(args.project) : null;
+  const scopeProject = projectOf(args);
+  const scope = scopeProject ? slug(scopeProject) : null;
   if (scope) records = records.filter((r) => r && r.project === scope);
   const handoffs = records.filter((r) => r && r.kind === 'handoff');
   const resumes = records.filter((r) => r && r.kind === 'resume');

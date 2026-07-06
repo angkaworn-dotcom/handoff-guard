@@ -4,7 +4,7 @@
 // usage: node set-max.mjs <max>      -> ตั้ง MAX ใหม่, T1=72%, T2=85% (auto)
 //        node set-max.mjs <max> <t1> <t2>  -> ตั้งเองทั้ง 3 ค่า
 //        node set-max.mjs reset|default     -> ลบ config, กลับไป auto-detect เพดานจากโมเดล (fable/mythos 512k · opus 256k · sonnet/haiku 200k · [1m] 1M)
-import { mkdirSync, existsSync, writeFileSync, unlinkSync, readFileSync } from 'node:fs';
+import { mkdirSync, existsSync, writeFileSync, unlinkSync, readFileSync, renameSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -28,6 +28,13 @@ function readConfig() {
   } catch { return {}; }
 }
 
+// temp+rename — hook อ่าน config.json ทุกเทิร์น ไฟล์ครึ่งเดียว (crash กลางเขียน) = JSON.parse พังเงียบทุกเทิร์น
+function writeConfig(obj) {
+  const tmp = configPath + '.tmp-' + process.pid;
+  writeFileSync(tmp, JSON.stringify(obj, null, 2));
+  renameSync(tmp, configPath);
+}
+
 const arg0 = (process.argv[2] || '').trim().toLowerCase();
 
 if (!arg0 || arg0 === 'reset' || arg0 === 'default') {
@@ -39,7 +46,7 @@ if (!arg0 || arg0 === 'reset' || arg0 === 'default') {
 // 0 / off / disable = kill switch — เขียน {max:0} ให้ hook ปิดตัวเอง (ไม่เตือน/ไม่ block)
 if (arg0 === '0' || arg0 === 'off' || arg0 === 'disable') {
   mkdirSync(dir, { recursive: true });
-  writeFileSync(configPath, JSON.stringify({ ...readConfig(), max: 0 }, null, 2));
+  writeConfig({ ...readConfig(), max: 0 });
   console.log('🔕 ปิด handoff-guard แล้ว (MAX=0) — จะไม่เตือน/ไม่ block จนกว่าจะตั้งค่าใหม่');
   console.log(`   บันทึกที่ ${configPath} — มีผลเทิร์นถัดไป`);
   console.log('   เปิดคืน: /handoff-guard-max reset (กลับไป auto) หรือ /handoff-guard-max <n> (ตั้งเพดานเอง)');
@@ -62,7 +69,7 @@ if (t1 >= t2) fail(`tier1 (${t1}) ต้องน้อยกว่า tier2 (${
 if (t2 > max) fail(`tier2 (${t2}) ต้องไม่เกิน MAX (${max})`);
 
 mkdirSync(dir, { recursive: true });
-writeFileSync(configPath, JSON.stringify({ ...readConfig(), max, t1, t2 }, null, 2));
+writeConfig({ ...readConfig(), max, t1, t2 });
 
 console.log(`✅ ตั้งเพดานใหม่: MAX=${max}, tier1(เตือน)=${t1}, tier2(ด่วน)=${t2}`);
 console.log(`   บันทึกที่ ${configPath} — มีผลเทิร์นถัดไป · pin ทุกโมเดล (override auto-detect)`);

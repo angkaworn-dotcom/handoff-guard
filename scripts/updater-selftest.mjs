@@ -457,6 +457,22 @@ try {
   check('K4 ผู้รอดทุกชั้นยังครบหลังกวาดรอบสอง',
     survivorsK.every((p) => existsSync(p)) && [wtDirty, wtLocked, wtKeepL, wtRecent, wtOutside].every((p) => registeredK(p)));
 
+  // K5: --keep ติดลบ → usage error ไม่ใช่ clamp เป็น 0 (= ลบ aggressive สุดโดยผู้ใช้ไม่ตั้งใจ)
+  const rK5 = kRun(['--repo', kRepo, '--keep', '-1']);
+  check('K5 --keep -1 → exit 1 + ผู้รอดไม่ถูกแตะ', rK5.status === 1 && survivorsK.every((p) => existsSync(p)));
+
+  // K6: rename ที่ต้นทางอยู่ใต้ ignore-dirt แต่ปลายทางเป็นไฟล์จริง = งานค้างจริง ต้องนับ dirty
+  // (porcelain: "R  node_modules/x -> moved.js" — เดิม filter ดูแค่ต้นบรรทัดซึ่งคือฝั่ง old)
+  const wtRen = addWt('wt-rename');
+  mkdirSync(join(wtRen, 'node_modules'), { recursive: true });
+  writeFileSync(join(wtRen, 'node_modules', 'tracked.js'), 'x\n');
+  gitK(wtRen, ['add', '.']);
+  gitK(wtRen, ['commit', '-q', '-m', 'nm'], daysAgo(10));
+  gitK(wtRen, ['mv', 'node_modules/tracked.js', 'moved.js']);
+  const rK6 = kRun(['--repo', kRepo, '--keep', '0', '--dry']);
+  check('K6 rename node_modules/→นอก = dirty (ไม่โดน ignore-dirt กลืนแล้วลบงานค้าง)',
+    /skip \(dirty\): .*wt-rename/.test(rK6.out));
+
   // ── L. set-max.mjs — เขียน config ต้อง merge (ไม่ทำลาย field อื่น) + floor t1 กันใส่ % ──
   console.log('\n[L] set-max.mjs — merge config field ที่ไม่รู้จัก + floor t1/t2');
   const homeL = mkdtempSync(join(ROOT, 'homeL-'));
@@ -510,6 +526,98 @@ try {
   // ไฟล์สมบูรณ์อยู่แล้ว → ยังต้อง already installed (ไม่เขียนทับซ้ำทุกรอบ)
   const rN2 = runNode(REAL_ENSURE, [], { home: homeN, extraEnv: offlineEnv });
   check('N2 รันซ้ำหลัง heal → already installed', rN2.status === 0 && /already installed/.test(rN2.out));
+
+  // ── O. install.mjs — settings.json รูปทรงแปลก (null/array) + hook-dup check ต้องดู command จริง ──
+  console.log('\n[O] install.mjs · settings.json edge cases');
+  if (!repoLayout) {
+    console.log('  SKIP O — ไม่ได้อยู่ repo layout (เหตุผลเดียวกับ [A])');
+  } else {
+    // O1: settings.json = [] — array รับ property assignment ได้แต่ JSON.stringify ทิ้ง → hooks หายเงียบ
+    const homeO1 = mkdtempSync(join(ROOT, 'homeO1-'));
+    mkdirSync(join(homeO1, '.claude'), { recursive: true });
+    writeFileSync(join(homeO1, '.claude', 'settings.json'), '[]');
+    const rO1 = runNode(REAL_INSTALL, [], { home: homeO1, extraEnv: offlineEnv });
+    check('O1 settings.json=[] → exit 0 + เตือน + ไม่เขียนทับเงียบๆ',
+      rO1.status === 0 && /⚠️/.test(rO1.out)
+      && readFileSync(join(homeO1, '.claude', 'settings.json'), 'utf8').trim() === '[]');
+    // O2: settings.json = null — เดิม settings.hooks ??= {} บน null = TypeError ล้มทั้ง install
+    const homeO2 = mkdtempSync(join(ROOT, 'homeO2-'));
+    mkdirSync(join(homeO2, '.claude'), { recursive: true });
+    writeFileSync(join(homeO2, '.claude', 'settings.json'), 'null');
+    const rO2 = runNode(REAL_INSTALL, [], { home: homeO2, extraEnv: offlineEnv });
+    check('O2 settings.json=null → exit 0 + เตือน (ไม่ crash)', rO2.status === 0 && /⚠️/.test(rO2.out));
+    // O3: ชื่อไฟล์ hook โผล่ใน field อื่น (matcher) — substring ทั้ง array ตีว่า "มีแล้ว" ทั้งที่ hook ไม่ถูกติดตั้ง
+    const homeO3 = mkdtempSync(join(ROOT, 'homeO3-'));
+    mkdirSync(join(homeO3, '.claude'), { recursive: true });
+    writeFileSync(join(homeO3, '.claude', 'settings.json'), JSON.stringify({
+      hooks: { Stop: [{ matcher: 'context-guard.mjs', hooks: [{ type: 'command', command: 'echo unrelated' }] }] },
+    }));
+    const rO3 = runNode(REAL_INSTALL, [], { home: homeO3, extraEnv: offlineEnv });
+    let sO3 = {};
+    try { sO3 = JSON.parse(readFileSync(join(homeO3, '.claude', 'settings.json'), 'utf8')); } catch { /* FAIL ข้างล่าง */ }
+    const hasGuardCmd = (sO3.hooks?.Stop || []).some((e) => (e.hooks || [])
+      .some((h) => typeof h.command === 'string' && /\/hooks\/context-guard\.mjs/.test(h.command)));
+    check('O3 ชื่อไฟล์ใน matcher ไม่นับเป็น "ติดตั้งแล้ว" — hook จริงถูกเพิ่ม', rO3.status === 0 && hasGuardCmd);
+  }
+
+  // ── P. ensure-handoff — regex ต้อง anchor (ไม่ match handoff-guard) + vendored ต้อง sanity check ──
+  console.log('\n[P] ensure-handoff · anchor `name: handoff` + vendored sanity');
+  // P1: installed เป็น skill ผิดตัว (name: handoff-guard) → ต้องไม่ถือว่า already, heal เป็นของจริง
+  const homeP1 = mkdtempSync(join(ROOT, 'homeP1-'));
+  const wrongP1 = join(homeP1, '.claude', 'skills', 'handoff', 'SKILL.md');
+  mkdirSync(dirname(wrongP1), { recursive: true });
+  writeFileSync(wrongP1, '---\nname: handoff-guard\n---\n\nwrong skill copied here\n');
+  const rP1 = runNode(REAL_ENSURE, [], { home: homeP1, extraEnv: offlineEnv });
+  check('P1 name: handoff-guard ≠ handoff → ไม่ already, heal จาก vendored',
+    rP1.status === 0 && !/already installed/.test(rP1.out)
+    && /^name:[ \t]*handoff[ \t]*\r?$/m.test(readFileSync(wrongP1, 'utf8')));
+  // P2: vendored เนื้อผิด (สมมุติไฟล์ในแพ็กเกจพัง/โดนสลับ) + offline → ต้อง fail ดัง ไม่ติดตั้งขยะ
+  const dirP2 = join(ROOT, 'p2pkg');
+  mkdirSync(join(dirP2, 'scripts'), { recursive: true });
+  for (const f of ['ensure-handoff.mjs', 'update.mjs']) {
+    writeFileSync(join(dirP2, 'scripts', f), readFileSync(join(HERE, f), 'utf8'));
+  }
+  mkdirSync(join(dirP2, 'vendor', 'handoff'), { recursive: true });
+  writeFileSync(join(dirP2, 'vendor', 'handoff', 'SKILL.md'), '---\nname: totally-wrong\n---\n\nnot the handoff skill\n');
+  const homeP2 = mkdtempSync(join(ROOT, 'homeP2-'));
+  const rP2 = runNode(join(dirP2, 'scripts', 'ensure-handoff.mjs'), [], { home: homeP2, extraEnv: offlineEnv });
+  const p2Skill = join(homeP2, '.claude', 'skills', 'handoff', 'SKILL.md');
+  check('P2 vendored เนื้อผิด + offline → exit 1 ไม่ติดตั้งขยะ',
+    rP2.status === 1 && (!existsSync(p2Skill) || !/totally-wrong/.test(readFileSync(p2Skill, 'utf8'))));
+
+  // ── Q. session-resume — summarize ไม่อ่านเลย section + match case บน Windows ──
+  console.log('\n[Q] session-resume · summarize ขอบเขต section + case-insensitive match (win32)');
+  const REAL_RESUME = join(HERE, '..', 'hooks', 'session-resume.mjs');
+  if (!existsSync(REAL_RESUME)) {
+    console.log('  SKIP Q — ไม่ได้อยู่ repo layout (ไม่มี hooks/ sibling)');
+  } else {
+    const runResume = (inputObj, home) => {
+      const env = { ...process.env, USERPROFILE: home, HOME: home };
+      for (const k of Object.keys(env)) { if (/^HANDOFF_GUARD_/i.test(k)) delete env[k]; }
+      const r = spawnSync(process.execPath, [REAL_RESUME], { input: JSON.stringify(inputObj), encoding: 'utf8', env });
+      return { status: r.status, out: r.stdout || '' };
+    };
+    const homeQ = mkdtempSync(join(ROOT, 'homeQ-'));
+    const projQ = join(ROOT, 'projQ');
+    mkdirSync(projQ, { recursive: true });
+    const docQ = join(homeQ, 'handoff-q.md');
+    // section "งานถัดไป" ว่าง — bullet แรกที่เจอถัดไปอยู่ใน section อื่น ห้ามหยิบมาโชว์
+    writeFileSync(docQ, ['# Handoff — งานทดสอบ Q', '', '## สถานะ: กลางทาง', '', '## งานถัดไป', '',
+      '## Gotchas', '- อย่าหยิบข้อนี้มาเป็นงานถัดไป', ''].join('\n'));
+    const ptrDirQ = join(homeQ, '.claude', '.handoff-guard', 'pointers');
+    mkdirSync(ptrDirQ, { recursive: true });
+    writeFileSync(join(ptrDirQ, 'projq.json'), JSON.stringify({ cwd: projQ, handoff: docQ }));
+    const rQ1 = runResume({ cwd: projQ, source: 'startup' }, homeQ);
+    check('Q1 เจอ pointer → additionalContext อ้าง handoff', rQ1.status === 0 && rQ1.out.includes('handoff-q.md'));
+    check('Q1 section งานถัดไปว่าง → ไม่หยิบ bullet จาก section ถัดไป', !rQ1.out.includes('อย่าหยิบข้อนี้'));
+    if (process.platform === 'win32') {
+      // Windows: path เทียบ case-insensitive — pointer เขียน case หนึ่ง เปิด session อีก case ต้องยัง match
+      const rQ2 = runResume({ cwd: projQ.toUpperCase(), source: 'startup' }, homeQ);
+      check('Q2 (win32) cwd ต่าง case → ยัง match pointer', rQ2.out.includes('handoff-q.md'));
+    } else {
+      console.log('  SKIP Q2 — เฉพาะ win32 (Linux fs case-sensitive โดยเจตนา)');
+    }
+  }
 
 } finally {
   // ชุดนี้ synchronous ทั้งหมด (spawnSync บล็อก event loop) → event 'exit'/'error' ของ worker

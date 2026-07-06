@@ -248,6 +248,14 @@ check('I env MAX=0 → silent (ปิด) แม้ 900k', silent(offEnv));
 mkdirSync(markerDir, { recursive: true });
 writeFileSync(join(markerDir, 'config.json'), JSON.stringify({ max: 0 }));
 check('I config max=0 → silent (ปิด) แม้ 900k', silent(run('hg-off-cfg', 900000, 'claude-opus-4-8')));
+// env ว่าง ("") ต้องถือว่า "ไม่ได้ตั้ง" — ห้าม mask kill switch ของ config {max:0}
+check('I env MAX ว่าง ("") + config max=0 → ยังเงียบ (kill switch ไม่โดน mask)',
+  silent(run('hg-off-emptyenv', 900000, 'claude-opus-4-8', { ...cleanEnv, HANDOFF_GUARD_MAX: '' })));
+// config max ไม่ใช่ตัวเลข → MAX=NaN ทำทุก comparison เป็น false = ปิด guard เงียบ — ต้อง fallback เพดานโมเดล
+writeFileSync(join(markerDir, 'config.json'), JSON.stringify({ max: 'abc' }));
+const oI3 = parse(run('hg-nan-cfg', 185000, 'claude-opus-4-8').out);
+check('I config max="abc" → fallback เพดาน opus (256k), tier1 ที่ 185k (ไม่เงียบเพราะ NaN)',
+  oI3 && oI3.decision === 'block' && /tier=tier1/.test(ctxOf(oI3)));
 
 // ── cleanup ──────────────────────────────────────────────────────────────────
 // marker/state ทั้งหมดอยู่ใน fakeHome → ลบทิ้งทั้งก้อน ไม่กระทบของจริง

@@ -17,7 +17,12 @@ const argVal = (name, def) => {
 };
 const repo = argVal('--repo', '');
 const keepRaw = parseInt(argVal('--keep', '5'), 10);
-const keep = Math.max(0, Number.isNaN(keepRaw) ? 5 : keepRaw);   // ห้ามใช้ `|| 5` — จะกลืน --keep 0
+// ติดลบ = error ดังๆ — clamp เป็น 0 เงียบๆ คือ "ลบ aggressive สุด" ซึ่งตรงข้ามกับที่ผู้ใช้น่าจะตั้งใจ
+if (!Number.isNaN(keepRaw) && keepRaw < 0) {
+  console.error(`--keep ต้องเป็นจำนวนเต็ม ≥ 0 (ได้ ${keepRaw})`);
+  process.exit(1);
+}
+const keep = Number.isNaN(keepRaw) ? 5 : keepRaw;   // ห้ามใช้ `|| 5` — จะกลืน --keep 0
 const dry = args.includes('--dry');
 // lowercase ให้ตรงกับ base ที่มาจาก norm() (lowercase เสมอ) — ไม่งั้นชื่อมีตัวพิมพ์ใหญ่ไม่มีวัน match
 const keepList = argVal('--keep-list', process.env.HANDOFF_GUARD_KEEP_LIST || '')
@@ -59,8 +64,17 @@ for (const b of blocks) {
   try { dirtyOut = git(path, 'status', '--porcelain'); } catch { skip('status-error', path); continue; }
   // กรอง dirt ใต้ prefix ที่ระบุ (--ignore-dirt, default node_modules/) ออกก่อนตัดสิน dirty
   // เคสจริง: script ลบ node_modules ใน repo ที่ track มัน → status ขึ้น " D node_modules/..." ทั้งแผง
+  // rename/copy ("R  old -> new"): ทั้งสองฝั่งต้องอยู่ใต้ prefix ที่ ignore ถึงจะไม่นับ —
+  // ดูแค่ต้นบรรทัด (ฝั่ง old) จะกลืน rename ที่ปลายทางเป็นไฟล์งานจริง (= งานค้าง) แล้วลบ worktree ทิ้ง
   const realDirt = dirtyOut.split(/\r?\n/).filter(Boolean)
-    .filter((l) => { const f = l.slice(3).replace(/^"/, ''); return !ignoreDirt.some((p) => f.startsWith(p)); });
+    .filter((l) => {
+      const rest = l.slice(3);
+      const paths = /^[RC]/.test(l) && rest.includes(' -> ') ? rest.split(' -> ') : [rest];
+      return !paths.every((p) => {
+        const f = p.trim().replace(/^"|"$/g, '');
+        return ignoreDirt.some((x) => f.startsWith(x));
+      });
+    });
   if (realDirt.length) { skip('dirty', path); continue; }
   // recency = เวลา commit ล่าสุดของ HEAD (การทำงานจริง) — dir mtime เชื่อไม่ได้
   // (clean-worktree-node-modules.sh ไปแตะ mtime ทุกโฟลเดอร์ทั้งที่ไม่มีใครทำงาน)

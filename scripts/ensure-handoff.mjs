@@ -24,6 +24,10 @@ import { normEol, isMainModule } from './update.mjs';
 const RAW = process.env.HANDOFF_GUARD_HANDOFF_RAW
   || 'https://raw.githubusercontent.com/mattpocock/skills/main/skills/productivity/handoff/SKILL.md';
 
+// anchor ท้ายบรรทัด (`\r?$` เผื่อ CRLF) — regex หลวม `name:\s*handoff` จะ match `name: handoff-guard`
+// ด้วย ทำให้ skill ผิดตัวผ่าน sanity check ทุกจุดที่ใช้
+const NAME_RE = /^name:[ \t]*handoff[ \t]*\r?$/m;
+
 async function fetchUpstream() {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), 8000);
@@ -31,7 +35,7 @@ async function fetchUpstream() {
     const res = await fetch(RAW, { signal: ctrl.signal });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const txt = await res.text();
-    if (!/name:\s*handoff/.test(txt)) throw new Error('unexpected content');
+    if (!NAME_RE.test(txt)) throw new Error('unexpected content');
     return txt;
   } finally {
     clearTimeout(timer);
@@ -49,7 +53,7 @@ function writeAtomic(dest, data) {
 // เนื้อขั้นต่ำที่ถือว่า "ติดตั้งแล้วจริง" — แค่ existsSync ไม่พอ: ไฟล์ว่าง/ขาดครึ่ง
 // (เขียนค้างตอน crash) จะถูกนับ installed ตลอด ไม่มีวัน self-heal
 function looksInstalled(p) {
-  try { return /name:\s*handoff/.test(readFileSync(p, 'utf8')); } catch { return false; }
+  try { return NAME_RE.test(readFileSync(p, 'utf8')); } catch { return false; }
 }
 
 async function fromUpstream(targetSkill) {
@@ -111,7 +115,10 @@ function fromVendored(targetSkill) {
   const here = dirname(fileURLToPath(import.meta.url));
   const v = join(here, '..', 'vendor', 'handoff', 'SKILL.md');
   if (!existsSync(v)) throw new Error('ไม่พบ vendored ที่ ' + v);
-  writeAtomic(targetSkill, readFileSync(v));
+  // sanity check เหมือนฝั่ง upstream — vendored พัง/โดนสลับไฟล์ ต้อง fail ดัง ไม่ติดตั้งขยะเข้า context
+  const txt = readFileSync(v, 'utf8');
+  if (!NAME_RE.test(txt)) throw new Error('vendored เนื้อหาไม่ใช่ skill handoff (' + v + ')');
+  writeAtomic(targetSkill, txt);
 }
 
 // คืนค่า { installed: boolean, source: 'already'|'vendored'|'upstream'|null, message: string }

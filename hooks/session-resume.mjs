@@ -21,8 +21,13 @@ let input = {};
 try { input = JSON.parse(readStdin() || '{}'); } catch { /* ignore */ }
 const cwd = input.cwd || process.cwd();
 
-// normalize path สำหรับเทียบบน Windows (backslash/case-insensitive)
-const norm = (p) => String(p || '').replace(/\\/g, '/').replace(/\/+$/, '').toLowerCase();
+// normalize path สำหรับเทียบ — lowercase เฉพาะ fs ที่ case-insensitive (win32/darwin):
+// บน Linux path ต่าง case คือคนละโฟลเดอร์จริง lowercase จะทำ pointer ของคนละโปรเจกต์ match กันผิด
+const CASE_INSENSITIVE_FS = process.platform === 'win32' || process.platform === 'darwin';
+const norm = (p) => {
+  const s = String(p || '').replace(/\\/g, '/').replace(/\/+$/, '');
+  return CASE_INSENSITIVE_FS ? s.toLowerCase() : s;
+};
 const here = norm(cwd);
 
 // ไฟล์ที่ "ส่งสัญญาณ continue-me" ในโปรเจกต์ (per-project โดยธรรมชาติ — คงเดิม)
@@ -73,7 +78,15 @@ function summarizeHandoff(path) {
     const title = (lines.find((l) => l.startsWith('# ')) || '').replace(/^#\s*(Handoff\s*[—-]\s*)?/i, '').trim();
     const status = (lines.find((l) => /^##\s*(สถานะ|Status)/i.test(l)) || '').replace(/^##\s*/, '').trim();
     const i = lines.findIndex((l) => /^##\s*(งานที่รอ|งานถัดไป|Next)/i.test(l));
-    const next = i >= 0 ? (lines.slice(i + 1).find((l) => l.trim().startsWith('- ')) || '').trim().replace(/^-\s*/, '') : '';
+    // หา bullet เฉพาะใน section นี้ (หยุดที่ heading ถัดไป) — ไม่งั้น section ว่างจะไปหยิบ bullet
+    // ของ section อื่น (เช่น Gotchas) มาโชว์เป็น "งานถัดไป" ผิดๆ
+    let next = '';
+    if (i >= 0) {
+      const rest = lines.slice(i + 1);
+      const end = rest.findIndex((l) => /^##\s/.test(l));
+      const sect = end >= 0 ? rest.slice(0, end) : rest;
+      next = (sect.find((l) => l.trim().startsWith('- ')) || '').trim().replace(/^-\s*/, '');
+    }
     return [title, status, next && `ถัดไป: ${next}`].filter(Boolean).map(clip).join('\n');
   } catch { return ''; }
 }

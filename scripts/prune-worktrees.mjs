@@ -19,8 +19,9 @@ const repo = argVal('--repo', '');
 const keepRaw = parseInt(argVal('--keep', '5'), 10);
 const keep = Math.max(0, Number.isNaN(keepRaw) ? 5 : keepRaw);   // ห้ามใช้ `|| 5` — จะกลืน --keep 0
 const dry = args.includes('--dry');
+// lowercase ให้ตรงกับ base ที่มาจาก norm() (lowercase เสมอ) — ไม่งั้นชื่อมีตัวพิมพ์ใหญ่ไม่มีวัน match
 const keepList = argVal('--keep-list', process.env.HANDOFF_GUARD_KEEP_LIST || '')
-  .split(',').map((s) => s.trim()).filter(Boolean);
+  .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
 // dirt ใต้ prefix พวกนี้ไม่นับเป็นงานค้าง — default node_modules/ ปลอดภัยทุก repo:
 // repo ปกติ ignore node_modules อยู่แล้ว (ไม่โผล่ใน status) · repo ที่ track node_modules
 // (git มีเนื้อไฟล์ครบ กู้ได้จาก checkout) การลบมันไม่ใช่งานที่ต้องรักษา

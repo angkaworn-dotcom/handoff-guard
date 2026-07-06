@@ -4,7 +4,7 @@
 // usage: node set-max.mjs <max>      -> ตั้ง MAX ใหม่, T1=72%, T2=85% (auto)
 //        node set-max.mjs <max> <t1> <t2>  -> ตั้งเองทั้ง 3 ค่า
 //        node set-max.mjs reset|default     -> ลบ config, กลับไป auto-detect เพดานจากโมเดล (fable/mythos 512k · opus 256k · sonnet/haiku 200k · [1m] 1M)
-import { mkdirSync, existsSync, writeFileSync, unlinkSync } from 'node:fs';
+import { mkdirSync, existsSync, writeFileSync, unlinkSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -19,6 +19,15 @@ function fail(msg) {
   process.exit(1);
 }
 
+// อ่าน config เดิมมา merge — เขียนทับทั้งไฟล์จะทำลาย field อื่นเงียบๆ
+// (เช่น windows map ที่ docs ให้ user เติม regex→tokens เอง หรือ field อนาคตที่เวอร์ชันนี้ยังไม่รู้จัก)
+function readConfig() {
+  try {
+    const c = JSON.parse(readFileSync(configPath, 'utf8'));
+    return c && typeof c === 'object' && !Array.isArray(c) ? c : {};
+  } catch { return {}; }
+}
+
 const arg0 = (process.argv[2] || '').trim().toLowerCase();
 
 if (!arg0 || arg0 === 'reset' || arg0 === 'default') {
@@ -30,7 +39,7 @@ if (!arg0 || arg0 === 'reset' || arg0 === 'default') {
 // 0 / off / disable = kill switch — เขียน {max:0} ให้ hook ปิดตัวเอง (ไม่เตือน/ไม่ block)
 if (arg0 === '0' || arg0 === 'off' || arg0 === 'disable') {
   mkdirSync(dir, { recursive: true });
-  writeFileSync(configPath, JSON.stringify({ max: 0 }, null, 2));
+  writeFileSync(configPath, JSON.stringify({ ...readConfig(), max: 0 }, null, 2));
   console.log('🔕 ปิด handoff-guard แล้ว (MAX=0) — จะไม่เตือน/ไม่ block จนกว่าจะตั้งค่าใหม่');
   console.log(`   บันทึกที่ ${configPath} — มีผลเทิร์นถัดไป`);
   console.log('   เปิดคืน: /handoff-guard-max reset (กลับไป auto) หรือ /handoff-guard-max <n> (ตั้งเพดานเอง)');
@@ -46,11 +55,14 @@ let t2 = process.argv[4] !== undefined ? Number(process.argv[4]) : Math.round(ma
 
 if (!Number.isFinite(t1) || !Number.isFinite(t2)) fail('t1/t2 ที่ใส่เองต้องเป็นตัวเลข');
 if (t1 <= 0 || t2 <= 0) fail('t1/t2 ต้องเป็นค่าบวก');
+// floor กันใส่เป็น % โดยเข้าใจผิด (เช่น `200000 72 85` → T2=85 token = block ทุก session ตั้งแต่เทิร์นแรก)
+const minT1 = Math.max(1000, Math.round(max * 0.01));
+if (t1 < minT1) fail(`tier1 (${t1}) ต่ำผิดปกติ — ขั้นต่ำ ${minT1} (1% ของ MAX) · ถ้าตั้งใจใส่เป็น % ให้ใส่เป็น token เช่น ${Math.round(max * 0.72)} ${Math.round(max * 0.85)}`);
 if (t1 >= t2) fail(`tier1 (${t1}) ต้องน้อยกว่า tier2 (${t2})`);
 if (t2 > max) fail(`tier2 (${t2}) ต้องไม่เกิน MAX (${max})`);
 
 mkdirSync(dir, { recursive: true });
-writeFileSync(configPath, JSON.stringify({ max, t1, t2 }, null, 2));
+writeFileSync(configPath, JSON.stringify({ ...readConfig(), max, t1, t2 }, null, 2));
 
 console.log(`✅ ตั้งเพดานใหม่: MAX=${max}, tier1(เตือน)=${t1}, tier2(ด่วน)=${t2}`);
 console.log(`   บันทึกที่ ${configPath} — มีผลเทิร์นถัดไป · pin ทุกโมเดล (override auto-detect)`);

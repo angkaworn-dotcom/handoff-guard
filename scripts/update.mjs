@@ -157,9 +157,12 @@ try {
   const r2 = spawnSync(process.execPath, [eh, checkOnly ? '--check' : '--update'], { stdio: 'inherit' });
   if (r2.status !== 0) fail = true;   // upstream ล่ม/เนื้อหาผิด — รายงานแล้วโดย ensure-handoff เอง
 
+  // banner สรุปต้องดูผลจริงก่อน — model อ่าน stdout แล้วรายงานผู้ใช้ตามนั้น พิมพ์ 🎉 ทั้งที่ fail = รายงานผิด
   console.log(checkOnly
     ? '\nเช็คเสร็จ — ยังไม่แตะไฟล์ใดๆ'
-    : '\n🎉 อัปเดตเสร็จ — restart Claude Code session เพื่อโหลดของใหม่');
+    : fail
+      ? '\n⚠️ อัปเดตส่วน handoff-guard เสร็จ แต่ skill handoff ล้มเหลว — ดู error ข้างบน'
+      : '\n🎉 อัปเดตเสร็จ — restart Claude Code session เพื่อโหลดของใหม่');
 } catch (e) {
   console.error('update: ไม่สำเร็จ — ' + e.message);
   fail = true;

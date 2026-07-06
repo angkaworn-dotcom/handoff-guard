@@ -10,7 +10,7 @@
 //   --update   ดึง upstream ล่าสุด โชว์ diff แล้วเขียนทับ (สำรองตัวเก่าเป็น SKILL.md.bak)
 // หมายเหตุ: skill โหลดตอนเปิด session → ติดตั้ง/อัปเดตแล้วต้อง restart ถึงได้ตัวใหม่
 // ใช้ได้ 2 ทาง: (a) รันตรงจาก CLI  (b) import { ensureHandoff, updateHandoff } แล้วเรียกจาก hook/script อื่น
-import { existsSync, mkdirSync, copyFileSync, writeFileSync, readFileSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync, readFileSync, mkdtempSync, rmSync, renameSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -38,8 +38,22 @@ async function fetchUpstream() {
   }
 }
 
+// เขียนแบบ temp+rename — SKILL.md ถูกฉีดเข้า context ของ Claude ตรงๆ ไฟล์เขียนค้างครึ่งเดียว
+// (crash/ENOSPC กลาง writeFileSync) จะติดค้างเป็น skill พังเงียบๆ · rename บน volume เดียวกัน = atomic
+function writeAtomic(dest, data) {
+  const tmp = dest + '.tmp-' + process.pid;
+  writeFileSync(tmp, data);
+  renameSync(tmp, dest);
+}
+
+// เนื้อขั้นต่ำที่ถือว่า "ติดตั้งแล้วจริง" — แค่ existsSync ไม่พอ: ไฟล์ว่าง/ขาดครึ่ง
+// (เขียนค้างตอน crash) จะถูกนับ installed ตลอด ไม่มีวัน self-heal
+function looksInstalled(p) {
+  try { return /name:\s*handoff/.test(readFileSync(p, 'utf8')); } catch { return false; }
+}
+
 async function fromUpstream(targetSkill) {
-  writeFileSync(targetSkill, await fetchUpstream());
+  writeAtomic(targetSkill, await fetchUpstream());
 }
 
 // unified diff ระหว่างเนื้อหาเก่า/ใหม่ — ยืม git diff --no-index (มี git ทุกเครื่องที่ใช้ skill นี้อยู่แล้ว)
@@ -84,7 +98,7 @@ export async function updateHandoff({ write } = { write: false }) {
   }
   mkdirSync(target, { recursive: true });
   if (current !== null) writeFileSync(targetSkill + '.bak', current);   // ตัวเก่าไว้ย้อน/เทียบ
-  writeFileSync(targetSkill, latest);
+  writeAtomic(targetSkill, latest);
   return {
     changed: true, diff,
     message: 'handoff: อัปเดตเป็น upstream ล่าสุดแล้ว ✅'
@@ -97,7 +111,7 @@ function fromVendored(targetSkill) {
   const here = dirname(fileURLToPath(import.meta.url));
   const v = join(here, '..', 'vendor', 'handoff', 'SKILL.md');
   if (!existsSync(v)) throw new Error('ไม่พบ vendored ที่ ' + v);
-  copyFileSync(v, targetSkill);
+  writeAtomic(targetSkill, readFileSync(v));
 }
 
 // คืนค่า { installed: boolean, source: 'already'|'vendored'|'upstream'|null, message: string }
@@ -105,7 +119,7 @@ export async function ensureHandoff() {
   const target = join(homedir(), '.claude', 'skills', 'handoff');
   const targetSkill = join(target, 'SKILL.md');
 
-  if (existsSync(targetSkill)) {
+  if (looksInstalled(targetSkill)) {
     return { installed: true, source: 'already', message: 'handoff: already installed ✅' };
   }
   mkdirSync(target, { recursive: true });

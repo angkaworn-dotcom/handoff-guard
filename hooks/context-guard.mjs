@@ -186,6 +186,13 @@ function main() {
     process.exit(0);
   };
 
+  // F3 — เหตุผลเชิงต้นทุนจากค่าที่ "วัดจริง" เท่านั้น (tokens/rate/MAX/T2) ไม่มีเลขเดา
+  // remaining = ที่เหลือถึงเพดาน · turnsToMax = อีกกี่เทิร์นชนเพดานที่ rate ปัจจุบัน · etaToT2 = ถึง T2
+  const remaining = Math.max(0, MAX - tokens);
+  const turnsToMax = Math.ceil(remaining / rate);
+  const etaToT2 = Math.max(0, Math.ceil((T2 - tokens) / rate));
+  const costPhrase = `เหลือ ~${remaining} tok ก่อนเพดาน MAX ≈ ~${turnsToMax} เทิร์นที่ rate นี้`;
+
   // L3 trigger — priority สูง→ต่ำ (ยิงอันแรกที่เข้าเงื่อนไข)
 
   // tier2 (ด่วน) — fire ครั้งเดียวต่อ session
@@ -194,7 +201,7 @@ function main() {
     writeFileSync(m1, String(tokens));
     emit(
       `Context ~${tokens} tokens (เกิน ${T2} — ด่วน)`,
-      `🔴 ด่วน [tier=tier2 · tokens=${tokens} · rate=${Math.round(rate)}/เทิร์น]: context ~${tokens}/${MAX} ใกล้เต็มมาก. ก่อนทำงานอื่นต่อ ให้ invoke skill "handoff-guard" เดี๋ยวนี้ — ปิด step ที่ค้างให้ปลอดภัย, สร้าง handoff doc, แล้วบอกผู้ใช้เปิด session ใหม่.`
+      `🔴 ด่วน [tier=tier2 · tokens=${tokens} · rate=${Math.round(rate)}/เทิร์น · etaTurns=0]: context ~${tokens}/${MAX} ใกล้เต็มมาก (${costPhrase}). ทำต่อจนชนเพดาน = โดน auto-compact แล้ว context degrade — นั่นคือต้นทุนจริงของการไม่ handoff. ก่อนทำงานอื่นต่อ ให้ invoke skill "handoff-guard" เดี๋ยวนี้ — ปิด step ที่ค้างให้ปลอดภัย, สร้าง handoff doc, แล้วบอกผู้ใช้เปิด session ใหม่.`
     );
   }
 
@@ -203,7 +210,7 @@ function main() {
     writeFileSync(m1, String(tokens));
     emit(
       `Context ~${tokens} tokens (เกิน ${T1})`,
-      `⚠️ [tier=tier1 · tokens=${tokens} · rate=${Math.round(rate)}/เทิร์น]: context ~${tokens}/${MAX}. invoke skill "handoff-guard" เพื่อประเมินว่าควรขึ้น session ใหม่ไหม (ถ้าอยู่กลาง atomic op ให้ปิดให้ปลอดภัยก่อน). อย่าเริ่มงานใหญ่ใหม่จนกว่าจะประเมินเสร็จ.`
+      `⚠️ [tier=tier1 · tokens=${tokens} · rate=${Math.round(rate)}/เทิร์น · etaTurns=${etaToT2}]: context ~${tokens}/${MAX} (${costPhrase} · อีก ~${etaToT2} เทิร์นถึง T2 ${T2}). invoke skill "handoff-guard" เพื่อประเมินว่าควรขึ้น session ใหม่ไหม (ถ้าอยู่กลาง atomic op ให้ปิดให้ปลอดภัยก่อน). อย่าเริ่มงานใหญ่ใหม่จนกว่าจะประเมินเสร็จ.`
     );
   }
 
@@ -213,7 +220,7 @@ function main() {
     writeFileSync(mp, String(tokens));
     emit(
       `Context ~${tokens} tokens — คาดอีก ~${etaTurns} เทิร์นถึง ${T2}`,
-      `🟡 คาดการณ์ [tier=predict · tokens=${tokens} · rate=${Math.round(rate)}/เทิร์น · etaTurns=${etaTurns}]: context ~${tokens}/${MAX} โตเฉลี่ย ~${Math.round(rate)}/เทิร์น → อีก ~${etaTurns} เทิร์นจะแตะ ${T2}. ปิด step ปัจจุบันให้จบ แล้ว invoke skill "handoff-guard" เพื่อเตรียม handoff. อย่าเริ่มงานใหญ่ใหม่.`
+      `🟡 คาดการณ์ [tier=predict · tokens=${tokens} · rate=${Math.round(rate)}/เทิร์น · etaTurns=${etaTurns}]: context ~${tokens}/${MAX} โตเฉลี่ย ~${Math.round(rate)}/เทิร์น → อีก ~${etaTurns} เทิร์นจะแตะ ${T2} (${costPhrase}). ปิด step ปัจจุบันให้จบ แล้ว invoke skill "handoff-guard" เพื่อเตรียม handoff. อย่าเริ่มงานใหญ่ใหม่.`
     );
   }
 

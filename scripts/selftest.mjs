@@ -63,10 +63,13 @@ const o2 = parse(run('hg-test-b', 185000).out);
 check('185k → decision=block', o2 && o2.decision === 'block');
 check('185k → reason mentions 184320', o2 && /184320/.test(o2.reason || ''));
 check('185k → ctx invoke skill + tier1', o2 && /handoff-guard/.test(ctxOf(o2)) && /tier=tier1/.test(ctxOf(o2)));
+check('185k → ctx มี cost phrase "เหลือ ~" + etaTurns (F3)', o2 && /เหลือ ~/.test(ctxOf(o2)) && /etaTurns=/.test(ctxOf(o2)));
 check('185k same session again → silent (marker)', silent(run('hg-test-b', 186000)));
 const o4 = parse(run('hg-test-c', 218000).out);
 check('218k → decision=block', o4 && o4.decision === 'block');
 check('218k → tier2 urgent (ด่วน)', o4 && /ด่วน/.test(o4.reason || '') && /tier=tier2/.test(ctxOf(o4)));
+check('218k → ctx มี degrade reason + etaTurns=0 + cost phrase (F3)',
+  o4 && /(auto-compact|degrade)/.test(ctxOf(o4)) && /etaTurns=0/.test(ctxOf(o4)) && /เหลือ ~/.test(ctxOf(o4)));
 
 // ── B. predict — โตสม่ำเสมอ 11.6k/เทิร์น (เป้า T2=217600, K=3 → ยิงที่ ~183.2k < T1=184320) ──
 console.log('\n[B] predict (steady growth ~11.6k/turn)');

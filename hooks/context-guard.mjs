@@ -188,10 +188,15 @@ function main() {
 
   // F3 — เหตุผลเชิงต้นทุนจากค่าที่ "วัดจริง" เท่านั้น (tokens/rate/MAX/T2) ไม่มีเลขเดา
   // remaining = ที่เหลือถึงเพดาน · turnsToMax = อีกกี่เทิร์นชนเพดานที่ rate ปัจจุบัน · etaToT2 = ถึง T2
+  // cold start (ema ยังไม่ตั้งตัว เช่น fire แรกของ session): rate = FLOOR ซึ่งเป็น fallback ไม่ใช่การวัด
+  // → ห้าม claim "~N เทิร์น" จากค่า floor (เคย claim "~20 เทิร์น" ทั้งที่เทิร์นจริงกิน 10k+ ได้)
   const remaining = Math.max(0, MAX - tokens);
+  const rateSettled = (state.ema || 0) > 0;
   const turnsToMax = Math.ceil(remaining / rate);
-  const etaToT2 = Math.max(0, Math.ceil((T2 - tokens) / rate));
-  const costPhrase = `เหลือ ~${remaining} tok ก่อนเพดาน MAX ≈ ~${turnsToMax} เทิร์นที่ rate นี้`;
+  const etaToT2 = Math.max(0, etaTurns);   // สูตรเดียวกับ predict — ได้ overshoot clamp ด้วย (เทิร์นยักษ์ → ETA 1)
+  const costPhrase = rateSettled
+    ? `เหลือ ~${remaining} tok ก่อนเพดาน MAX ≈ ~${turnsToMax} เทิร์นที่ rate นี้`
+    : `เหลือ ~${remaining} tok ก่อนเพดาน MAX (rate ยังไม่ settle — ยังประมาณจำนวนเทิร์นไม่ได้)`;
 
   // F4 — ROI engine (deterministic): แสดง "อยู่ต่อแพงกว่า handoff กี่เท่า" เป็น *ช่วง* เสมอ
   // input เป็นค่าเดา (expected remaining prompts) → ระบุชัดว่าเป็นการประมาณ ไม่ใช่การวัด (กัน pseudo-precision)
@@ -199,16 +204,15 @@ function main() {
   // ปิดได้: env HANDOFF_GUARD_ROI=0 หรือ config {roi:0} → พฤติกรรมกลับไปเท่าก่อน F4 ทุกประการ
   const roiSlug = (p) => String(p).toLowerCase().replace(/[^a-z0-9฀-๿]/g, '-');
   const roiMedian = (arr) => {
+    if (!arr.length) return 0;   // กัน NaN — ต้นฉบับ F1 คืน null แต่ฝั่งนี้ผู้เรียกใช้เลขต่อ
     const s = [...arr].sort((a, b) => a - b);
     const m = Math.floor(s.length / 2);
     return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
   };
-  const roiPctile = (arr, p) => {
-    const s = [...arr].sort((a, b) => a - b);
-    return s[Math.min(s.length - 1, Math.round(p * (s.length - 1)))];
-  };
   const roiSuffix = (tier) => {
-    if (process.env.HANDOFF_GUARD_ROI === '0' || Number(fileConfig.roi) === 0) return '';
+    // kill switch: เทียบ strict เท่านั้น — Number() จะทำ {roi:null}/false/"" กลายเป็น 0 = ปิดเงียบ
+    // ทั้งที่ผู้ใช้ไม่ได้ตั้ง (convention เดียวกับ MAX: ค่า config ไม่ valid ห้ามเปลี่ยนพฤติกรรมเงียบ)
+    if (process.env.HANDOFF_GUARD_ROI === '0' || fileConfig.roi === 0 || fileConfig.roi === '0') return '';
     try {
       let recs = [];
       try {
@@ -220,9 +224,13 @@ function main() {
       } catch { /* ไม่มีไฟล์ — ตกไป default range */ }
       const handoffs = recs.filter((r) => r && r.kind === 'handoff');
       // per-project ก่อน (ถ้า cwd ให้ ≥5) → ไม่ถึงก็ pool รวมทุกโปรเจกต์
+      // record key ด้วย slug(mainRepoRoot) (SKILL step 6) แต่ session จาก chip รันใน worktree
+      // → ตัด /.claude/worktrees/<name>... ทิ้งก่อน slug (main↔worktree = โปรเจกต์เดียวกัน
+      // กติกาเดียวกับ pointer ใน session-resume) ไม่งั้น per-project pool ไม่มีวัน match
       let pool = handoffs;
       if (input.cwd) {
-        const cs = roiSlug(input.cwd);
+        const cwdMain = String(input.cwd).replace(/[\\/]\.claude[\\/]worktrees[\\/].*$/i, '');
+        const cs = roiSlug(cwdMain);
         const pj = handoffs.filter((r) => r.project === cs);
         if (pj.length >= 5) pool = pj;
       }
@@ -237,8 +245,10 @@ function main() {
       else if (cfgOv && cfgOv.length === 2 && cfgOv.every(Number.isFinite)) { [lo, hi] = cfgOv; source = 'override'; }
       else if (turnsArr.length >= 5) {
         const cur = state.turns || 1;
-        lo = Math.max(1, roiPctile(turnsArr, 0.25) - cur);
-        hi = Math.max(1, roiPctile(turnsArr, 0.75) - cur);
+        const sorted = [...turnsArr].sort((a, b) => a - b);   // sort ครั้งเดียว ใช้สอง percentile
+        const pct = (p) => sorted[Math.min(sorted.length - 1, Math.round(p * (sorted.length - 1)))];
+        lo = Math.max(1, pct(0.25) - cur);
+        hi = Math.max(1, pct(0.75) - cur);
         source = 'stats';
       } else { lo = 5; hi = 15; source = 'default'; }
       if (lo > hi) { const t = lo; lo = hi; hi = t; }
@@ -266,7 +276,7 @@ function main() {
     writeFileSync(m1, String(tokens));
     emit(
       `Context ~${tokens} tokens (เกิน ${T2} — ด่วน)`,
-      `🔴 ด่วน [tier=tier2 · tokens=${tokens} · rate=${Math.round(rate)}/เทิร์น · etaTurns=0]: context ~${tokens}/${MAX} ใกล้เต็มมาก (${costPhrase}). ทำต่อจนชนเพดาน = โดน auto-compact แล้ว context degrade — นั่นคือต้นทุนจริงของการไม่ handoff. ก่อนทำงานอื่นต่อ ให้ invoke skill "handoff-guard" เดี๋ยวนี้ — ปิด step ที่ค้างให้ปลอดภัย, สร้าง handoff doc, แล้วบอกผู้ใช้เปิด session ใหม่.` + roiSuffix('tier2')
+      `🔴 ด่วน [tier=tier2 · tokens=${tokens} · max=${MAX} · model=${model || 'unknown'} · rate=${Math.round(rate)} · turns=${state.turns} · etaTurns=0]: context ~${tokens}/${MAX} ใกล้เต็มมาก (${costPhrase}). ทำต่อจนชนเพดาน = โดน auto-compact แล้ว context degrade — นั่นคือต้นทุนจริงของการไม่ handoff. ก่อนทำงานอื่นต่อ ให้ invoke skill "handoff-guard" เดี๋ยวนี้ — ปิด step ที่ค้างให้ปลอดภัย, สร้าง handoff doc, แล้วบอกผู้ใช้เปิด session ใหม่.` + roiSuffix('tier2')
     );
   }
 
@@ -275,7 +285,7 @@ function main() {
     writeFileSync(m1, String(tokens));
     emit(
       `Context ~${tokens} tokens (เกิน ${T1})`,
-      `⚠️ [tier=tier1 · tokens=${tokens} · rate=${Math.round(rate)}/เทิร์น · etaTurns=${etaToT2}]: context ~${tokens}/${MAX} (${costPhrase} · อีก ~${etaToT2} เทิร์นถึง T2 ${T2}). invoke skill "handoff-guard" เพื่อประเมินว่าควรขึ้น session ใหม่ไหม (ถ้าอยู่กลาง atomic op ให้ปิดให้ปลอดภัยก่อน). อย่าเริ่มงานใหญ่ใหม่จนกว่าจะประเมินเสร็จ.` + roiSuffix('tier1')
+      `⚠️ [tier=tier1 · tokens=${tokens} · max=${MAX} · model=${model || 'unknown'} · rate=${Math.round(rate)} · turns=${state.turns} · etaTurns=${etaToT2}]: context ~${tokens}/${MAX} (${costPhrase}${rateSettled ? ` · อีก ~${etaToT2} เทิร์นถึง T2 ${T2}` : ''}). invoke skill "handoff-guard" เพื่อประเมินว่าควรขึ้น session ใหม่ไหม (ถ้าอยู่กลาง atomic op ให้ปิดให้ปลอดภัยก่อน). อย่าเริ่มงานใหญ่ใหม่จนกว่าจะประเมินเสร็จ.` + roiSuffix('tier1')
     );
   }
 
@@ -285,7 +295,7 @@ function main() {
     writeFileSync(mp, String(tokens));
     emit(
       `Context ~${tokens} tokens — คาดอีก ~${etaTurns} เทิร์นถึง ${T2}`,
-      `🟡 คาดการณ์ [tier=predict · tokens=${tokens} · rate=${Math.round(rate)}/เทิร์น · etaTurns=${etaTurns}]: context ~${tokens}/${MAX} โตเฉลี่ย ~${Math.round(rate)}/เทิร์น → อีก ~${etaTurns} เทิร์นจะแตะ ${T2} (${costPhrase}). ปิด step ปัจจุบันให้จบ แล้ว invoke skill "handoff-guard" เพื่อเตรียม handoff. อย่าเริ่มงานใหญ่ใหม่.` + roiSuffix('predict')
+      `🟡 คาดการณ์ [tier=predict · tokens=${tokens} · max=${MAX} · model=${model || 'unknown'} · rate=${Math.round(rate)} · turns=${state.turns} · etaTurns=${etaTurns}]: context ~${tokens}/${MAX} โตเฉลี่ย ~${Math.round(rate)}/เทิร์น → อีก ~${etaTurns} เทิร์นจะแตะ ${T2} (${costPhrase}). ปิด step ปัจจุบันให้จบ แล้ว invoke skill "handoff-guard" เพื่อเตรียม handoff. อย่าเริ่มงานใหญ่ใหม่.` + roiSuffix('predict')
     );
   }
 

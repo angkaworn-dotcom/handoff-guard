@@ -35,9 +35,10 @@ function makeTranscript(tokens, model = 'claude-opus-4-8') {
 
 // คืน { status, out } — เช็คเงียบต้องดู exit code ด้วย: hook crash (exit≠0, stdout ว่าง)
 // เคยผ่านเช็ค "เงียบ" ทั้งที่พังจริง · silent() = ไม่ block และไม่ crash
-function run(sessionId, tokens, model, env = cleanEnv) {
+function run(sessionId, tokens, model, env = cleanEnv, extraInput = {}) {
   const input = JSON.stringify({
     session_id: sessionId, transcript_path: makeTranscript(tokens, model), hook_event_name: 'Stop',
+    ...extraInput,
   });
   const r = spawnSync('node', [HOOK], { input, encoding: 'utf8', env });
   return { status: r.status, out: (r.stdout || '').trim() };
@@ -64,6 +65,13 @@ check('185k → decision=block', o2 && o2.decision === 'block');
 check('185k → reason mentions 184320', o2 && /184320/.test(o2.reason || ''));
 check('185k → ctx invoke skill + tier1', o2 && /handoff-guard/.test(ctxOf(o2)) && /tier=tier1/.test(ctxOf(o2)));
 check('185k → ctx มี cost phrase "เหลือ ~" + etaTurns (F3)', o2 && /เหลือ ~/.test(ctxOf(o2)) && /etaTurns=/.test(ctxOf(o2)));
+// fire แรกของ session ema=0 → rate คือ FLOOR (fallback ไม่ใช่การวัด) — ห้าม claim "~N เทิร์น" จากมัน
+check('185k fire แรก (rate ยังไม่ settle) → ไม่ claim จำนวนเทิร์นจาก rate floor (F3)',
+  o2 && /rate ยังไม่ settle/.test(ctxOf(o2)) && !/เทิร์นที่ rate นี้/.test(ctxOf(o2)));
+// bracket = contract ให้ SKILL step 6 copy ตรง: ต้องมี max/model/turns และ rate เป็นเลขเปล่าไม่มีหน่วยติด
+check('185k → bracket มี max/model/turns + rate เลขเปล่า (F1 contract)',
+  o2 && /max=256000/.test(ctxOf(o2)) && /model=claude-opus-4-8/.test(ctxOf(o2))
+  && /turns=1/.test(ctxOf(o2)) && /rate=\d+ · /.test(ctxOf(o2)) && !/rate=\d+\//.test(ctxOf(o2)));
 check('185k same session again → silent (marker)', silent(run('hg-test-b', 186000)));
 const o4 = parse(run('hg-test-c', 218000).out);
 check('218k → decision=block', o4 && o4.decision === 'block');
@@ -78,6 +86,9 @@ check('B fire#2 171.6k → silent (ETA=4 > K=3)', silent(run('hg-predict', 17160
 const oP = parse(run('hg-predict', 183200).out);        // ETA = ceil((217600-183200)/11600) = 3 ≤ K
 check('B fire#3 183.2k → predict fires (block, ยังไม่ถึง T1=184320)', oP && oP.decision === 'block' && /tier=predict/.test(ctxOf(oP)));
 check('B predict ctx มี etaTurns', oP && /etaTurns=3/.test(ctxOf(oP)));
+// predict fire ได้เมื่อ ema settle แล้ว → cost phrase ต้องเป็น variant เต็ม (claim จำนวนเทิร์นได้)
+check('B predict (ema settle) → cost phrase claim "~N เทิร์นที่ rate นี้" ได้ (F3 settled)',
+  oP && /เทิร์นที่ rate นี้/.test(ctxOf(oP)));
 const sB = readState('hg-predict');                    // อ่านก่อน perturb ด้วย run ถัดไป
 check('B state.ema ≈ 11600 (EWMA นิ่ง)', sB && Math.abs(sB.ema - 11600) < 100);
 // B2: "ครั้งเดียว/session" ต้องตัดสินด้วย marker จริง — เช็คเดิมใช้ token ที่เลขคณิตทำให้เงียบเอง
@@ -322,8 +333,32 @@ const oO6 = parse(run('roi-ov', 185000, 'claude-opus-4-8',
 check('O6 env override prompts=2,4 → replay ~370000–740000 (ช่วงกำหนดเอง)',
   oO6 && /replay ~370000–740000/.test(ctxOf(oO6)) && /กำหนดเอง/.test(ctxOf(oO6)));
 
+// O7: per-project pool ต้อง match แม้ session รันใน worktree (cwd ≠ mainRepoRoot — bug เดิม:
+// roiSlug(cwd) ไม่มีวันเท่ากับ slug(mainRepoRoot) ที่ record ใช้ → per-project ตายเงียบใน chip workflow)
+const homeO7 = mkdtempSync(join(tmpdir(), 'hg-roi7-'));
+const slugO7 = 'c--fake-proj-o7';   // slug ของ C:\fake\proj-o7
+seedStats(homeO7, [
+  ...[10, 20, 30, 40, 50].map((t) => ({ v: 1, kind: 'handoff', turns: t, docTokensEst: 1000, tokens: 90000, project: slugO7 })),
+  ...[100, 110, 120, 130, 140].map((t) => ({ v: 1, kind: 'handoff', turns: t, docTokensEst: 9000, tokens: 90000, project: 'other-proj' })),
+]);
+const oO7 = parse(run('roi-wt', 185000, 'claude-opus-4-8', roiEnv(homeO7),
+  { cwd: 'C:\\fake\\proj-o7\\.claude\\worktrees\\lucid-x' }).out);
+check('O7 cwd ใน worktree → per-project ยัง match (ช่วงจาก 5 session ของโปรเจกต์ ไม่ใช่ pool รวม 10)',
+  oO7 && /ช่วงจากสถิติ 5 session/.test(ctxOf(oO7)) && /replay ~3515000–7215000/.test(ctxOf(oO7)));
+
+// O8: config {roi:null} (ค่า unset จาก tool/merge) ห้ามโดน Number() coerce เป็น 0 แล้วปิด ROI เงียบ
+//     — kill switch ต้อง strict {roi:0} เท่านั้น (convention เดียวกับ config max ไม่ valid → fallback)
+const homeO8 = mkdtempSync(join(tmpdir(), 'hg-roi8-'));
+mkdirSync(join(homeO8, '.claude', '.handoff-guard'), { recursive: true });
+writeFileSync(join(homeO8, '.claude', '.handoff-guard', 'config.json'), JSON.stringify({ roi: null }));
+const oO8a = parse(run('roi-null', 185000, 'claude-opus-4-8', roiEnv(homeO8)).out);
+writeFileSync(join(homeO8, '.claude', '.handoff-guard', 'config.json'), JSON.stringify({ roi: 0 }));
+const oO8b = parse(run('roi-zero', 185000, 'claude-opus-4-8', roiEnv(homeO8)).out);
+check('O8 config {roi:null} → ROI ยังอยู่ (ไม่โดน coerce ปิดเงียบ)', oO8a && /ROI\(est\)/.test(ctxOf(oO8a)));
+check('O8 config {roi:0} → ปิด ROI จริง + ยัง block', oO8b && oO8b.decision === 'block' && !/ROI\(est\)/.test(ctxOf(oO8b)));
+
 rmSync(homeO1, { recursive: true, force: true });
-[homeO2, homeO3, homeO4, homeO5, homeO6].forEach((h) => rmSync(h, { recursive: true, force: true }));
+[homeO2, homeO3, homeO4, homeO5, homeO6, homeO7, homeO8].forEach((h) => rmSync(h, { recursive: true, force: true }));
 
 // ── cleanup ──────────────────────────────────────────────────────────────────
 // marker/state ทั้งหมดอยู่ใน fakeHome → ลบทิ้งทั้งก้อน ไม่กระทบของจริง

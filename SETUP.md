@@ -87,6 +87,8 @@ T1/T2 ก็ priority เดียวกัน (env → config → `round(MAX×0
 | บังคับเพดาน (display) แบบ manual/override | env `HANDOFF_GUARD_MAX` (default = auto-detect ตามโมเดล) — เกินนี้เริ่มเสียบริบท · T1/T2 คิด % ใหม่จากค่านี้อัตโนมัติ (t1/t2 ที่ pin ในไฟล์ถูกข้าม) |
 | predict เตือนล่วงหน้ามาก/น้อย | env `HANDOFF_GUARD_PREDICT_TURNS` (K, default 3) — มาก=เตือนเบาๆ เร็ว, น้อย=ดึงใกล้ค่อยเตือน |
 | predict ไวต่อ spike มาก/น้อย | env `HANDOFF_GUARD_EMA_ALPHA` (default 0.4) — สูง=react ไว แต่กระตุกตาม spike, ต่ำ=นิ่งแต่ lag |
+| ปิดบรรทัด ROI (F4) ในข้อความเตือน | env `HANDOFF_GUARD_ROI=0` หรือ config.json `{"roi": 0}` — พฤติกรรมกลับไปเท่าก่อน F4 ทุกประการ (ยัง block ตาม tier ปกติ) · เทียบ strict เท่านั้น: `{"roi": null}` หรือค่าอื่นไม่ปิด (ค่า config ไม่ valid ห้ามเปลี่ยนพฤติกรรมเงียบ) |
+| กำหนดช่วง "เทิร์นที่เหลือ" ของ ROI เอง (แทนสถิติ/default) | env `HANDOFF_GUARD_ROI_PROMPTS=lo,hi` (เช่น `2,4`) หรือ config.json `{"roiPrompts": [lo, hi]}` — env ชนะ config · ไม่ตั้ง = ใช้ p25–p75 จากสถิติ (ต้องมี ≥5 session) ไม่ถึงก็ default `[5,15]` |
 | auto-compact ยิงก่อน T1 (ไม่ทันเตือน) | pin เพดานต่ำลง `/handoff-guard-max <ต่ำกว่าจุด compact จริง>` — สังเกตจาก live ว่า compaction เกิดที่กี่ token |
 | รีเซ็ตการเตือนของ session | ลบ marker `~/.claude/.handoff-guard/<session_id>.{p,t1,t2}` + `.state.json` (รีเซ็ต EWMA) |
 | อัปเดตทุกอย่างเป็นเวอร์ชันล่าสุด (handoff-guard + skill `handoff`) | `/handoff-guard-update` ในแชท หรือ `node ~/.claude/skills/handoff-guard/scripts/update.mjs --check` (ดูอย่างเดียว) → รันโดยไม่ใส่ `--check` (อัปเดต + สำรอง `.bak` · restart session) · เฉพาะส่วนของ Matt: `ensure-handoff.mjs --check`/`--update` |

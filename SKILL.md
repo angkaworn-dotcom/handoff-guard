@@ -35,6 +35,8 @@ description: Context Manager (V2) — observe→predict→decide→recover. Deci
 | **tier1** (token ≥ T1) + อยู่กลาง task ใหญ่ ยังเหลือหลาย step | ปิด step ปัจจุบันให้ปลอดภัย → **handoff** |
 | **tier1** + งานใกล้จบใน 1-2 step สั้น | ทำต่อให้จบ step นั้น → **handoff ทันที** (อย่าเริ่มงานใหญ่ใหม่) |
 
+> **ROI (ถ้ามีในข้อความ hook — F4)**: บรรทัด `💰 ROI(est): … · <label>` เป็น *ข้อมูลเสริม* การตัดสิน ไม่ใช่ตัวสั่ง — ROI สูง / label `Recommended`/`Critical` = เอนไป handoff เร็วขึ้น · แต่ **tier ยังกำหนดความเร่งหลัก** (tier2/`Critical` = ทันทีเสมอ) · ตัวเลขเป็น *ช่วงประมาณจากสถิติ* (input "เทิร์นที่เหลือ" เป็นค่าเดา) — อย่าถือเป็นความแม่น การตัดสินสุดท้ายเป็นของ AI ตามหลัก V2 · ยิ่งมี stats (F1) เยอะ ช่วงยิ่งแคบ (adaptive โดยปริยาย — ไม่มี threshold-per-project แยก)
+
 ### 3. ถ้าตัดสินว่า handoff
 1. เขียน **handoff doc เอง** ตามฟอร์แมตของ skill `handoff` (Matt Pocock) — **อย่า invoke ผ่าน Skill tool**: skill นั้นตั้ง `disable-model-invocation: true` โดยเจตนา (โมเดลเรียกเองไม่ได้) · **ตัว doc สำคัญ ไม่ใช่ว่าใครเขียน**
    - ฟอร์แมตต้นฉบับ: `Read ~/.claude/skills/handoff/SKILL.md` แล้วทำตามทุกข้อ (มี suggested-skills section · อ้าง artifact ที่มีอยู่ด้วย path/URL ไม่ duplicate · redact secret · ปรับตาม focus ของ session ถัดไป) + **บังคับเพิ่ม (guard): atomic/uncommitted, worktree/branch/env, BLOCKED**

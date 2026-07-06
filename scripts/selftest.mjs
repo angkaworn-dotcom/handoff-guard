@@ -63,10 +63,13 @@ const o2 = parse(run('hg-test-b', 185000).out);
 check('185k → decision=block', o2 && o2.decision === 'block');
 check('185k → reason mentions 184320', o2 && /184320/.test(o2.reason || ''));
 check('185k → ctx invoke skill + tier1', o2 && /handoff-guard/.test(ctxOf(o2)) && /tier=tier1/.test(ctxOf(o2)));
+check('185k → ctx มี cost phrase "เหลือ ~" + etaTurns (F3)', o2 && /เหลือ ~/.test(ctxOf(o2)) && /etaTurns=/.test(ctxOf(o2)));
 check('185k same session again → silent (marker)', silent(run('hg-test-b', 186000)));
 const o4 = parse(run('hg-test-c', 218000).out);
 check('218k → decision=block', o4 && o4.decision === 'block');
 check('218k → tier2 urgent (ด่วน)', o4 && /ด่วน/.test(o4.reason || '') && /tier=tier2/.test(ctxOf(o4)));
+check('218k → ctx มี degrade reason + etaTurns=0 + cost phrase (F3)',
+  o4 && /(auto-compact|degrade)/.test(ctxOf(o4)) && /etaTurns=0/.test(ctxOf(o4)) && /เหลือ ~/.test(ctxOf(o4)));
 
 // ── B. predict — โตสม่ำเสมอ 11.6k/เทิร์น (เป้า T2=217600, K=3 → ยิงที่ ~183.2k < T1=184320) ──
 console.log('\n[B] predict (steady growth ~11.6k/turn)');
@@ -256,6 +259,71 @@ writeFileSync(join(markerDir, 'config.json'), JSON.stringify({ max: 'abc' }));
 const oI3 = parse(run('hg-nan-cfg', 185000, 'claude-opus-4-8').out);
 check('I config max="abc" → fallback เพดาน opus (256k), tier1 ที่ 185k (ไม่เงียบเพราะ NaN)',
   oI3 && oI3.decision === 'block' && /tier=tier1/.test(ctxOf(oI3)));
+
+// ── O. F4 ROI engine — ช่วง ROI ซ้อนบน tier + recommendation + ปิดได้ ───────────
+console.log('\n[O] F4 ROI engine');
+// env แยกต่อเคส: strip HANDOFF_GUARD_* แล้วค่อยเติมเฉพาะที่ต้องการ (cleanEnv strip ทิ้งหมด)
+const roiEnv = (home, extra = {}) => {
+  const e = { ...process.env, USERPROFILE: home, HOME: home };
+  for (const k of Object.keys(e)) if (/^HANDOFF_GUARD_/i.test(k)) delete e[k];
+  return { ...e, ...extra };
+};
+const seedStats = (home, records) => {
+  const d = join(home, '.claude', '.handoff-guard');
+  mkdirSync(d, { recursive: true });
+  writeFileSync(join(d, 'stats.jsonl'), records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+};
+const H = (turns, doc) => ({ v: 1, kind: 'handoff', turns, docTokensEst: doc, tokens: 90000, project: 'p' });
+
+// O1: 5 handoff (turns 10..50, doc 1000) → p25=20,p75=40, cur=1 → remaining [19,39]
+//     replay = 185000×[19,39] = [3515000,7215000] · handoffCost = median(1000)+3000 = 4000
+//     ROI = [878,1803] · tier1 & lo≥20 → Recommended
+const homeO1 = mkdtempSync(join(tmpdir(), 'hg-roi1-'));
+seedStats(homeO1, [H(10, 1000), H(20, 1000), H(30, 1000), H(40, 1000), H(50, 1000)]);
+const oO1 = parse(run('roi-t1', 185000, 'claude-opus-4-8', roiEnv(homeO1)).out);
+check('O1 tier1 มี ROI line ตัวเลขช่วงตรง + Recommended + N session',
+  oO1 && /💰 ROI\(est\)/.test(ctxOf(oO1))
+  && /replay ~3515000–7215000/.test(ctxOf(oO1)) && /handoff ~4000/.test(ctxOf(oO1))
+  && /~878x–1803x/.test(ctxOf(oO1)) && /Recommended/.test(ctxOf(oO1)) && /5 session/.test(ctxOf(oO1)));
+
+// O2: ไม่มี stats → default range [5,15] + note "ยังไม่มีสถิติ"
+const homeO2 = mkdtempSync(join(tmpdir(), 'hg-roi2-'));
+const oO2 = parse(run('roi-nostat', 185000, 'claude-opus-4-8', roiEnv(homeO2)).out);
+check('O2 ไม่มี stats → default range + "ยังไม่มีสถิติ"',
+  oO2 && /💰 ROI\(est\)/.test(ctxOf(oO2)) && /ยังไม่มีสถิติ/.test(ctxOf(oO2))
+  && /replay ~925000–2775000/.test(ctxOf(oO2)));   // 185000×[5,15]
+
+// O3: HANDOFF_GUARD_ROI=0 → ไม่มีบรรทัด ROI เลย (พฤติกรรม = ก่อน F4)
+const homeO3 = mkdtempSync(join(tmpdir(), 'hg-roi3-'));
+seedStats(homeO3, [H(10, 1000), H(20, 1000), H(30, 1000), H(40, 1000), H(50, 1000)]);
+const oO3 = parse(run('roi-off', 185000, 'claude-opus-4-8', roiEnv(homeO3, { HANDOFF_GUARD_ROI: '0' })).out);
+check('O3 HANDOFF_GUARD_ROI=0 → ไม่มี ROI line แต่ยัง block tier1',
+  oO3 && oO3.decision === 'block' && /tier=tier1/.test(ctxOf(oO3)) && !/ROI\(est\)/.test(ctxOf(oO3)));
+
+// O4: tier2 → Critical เสมอ (buffer จริงชนะ ROI)
+const homeO4 = mkdtempSync(join(tmpdir(), 'hg-roi4-'));
+seedStats(homeO4, [H(10, 1000), H(20, 1000), H(30, 1000), H(40, 1000), H(50, 1000)]);
+const oO4 = parse(run('roi-t2', 218000, 'claude-opus-4-8', roiEnv(homeO4)).out);
+check('O4 tier2 → ROI label = Critical', oO4 && /💰 ROI\(est\)/.test(ctxOf(oO4)) && /Critical/.test(ctxOf(oO4)));
+
+// O5: stats เสีย (บรรทัดขยะ) → ไม่ crash, ตกไป default range, ยัง block
+const homeO5 = mkdtempSync(join(tmpdir(), 'hg-roi5-'));
+mkdirSync(join(homeO5, '.claude', '.handoff-guard'), { recursive: true });
+writeFileSync(join(homeO5, '.claude', '.handoff-guard', 'stats.jsonl'),
+  '{ ขยะ ไม่ใช่ json\n' + JSON.stringify(H(10, 1000)) + '\n');   // 1 เสีย + 1 valid (<5 → default)
+const oO5 = parse(run('roi-corrupt', 185000, 'claude-opus-4-8', roiEnv(homeO5)).out);
+check('O5 stats เสีย → ไม่ crash + block + ROI default range',
+  oO5 && oO5.decision === 'block' && /💰 ROI\(est\)/.test(ctxOf(oO5)) && /ยังไม่มีสถิติ/.test(ctxOf(oO5)));
+
+// O6: env override HANDOFF_GUARD_ROI_PROMPTS=2,4 → replay ใช้ [2,4] (ชนะสถิติ)
+const homeO6 = mkdtempSync(join(tmpdir(), 'hg-roi6-'));
+const oO6 = parse(run('roi-ov', 185000, 'claude-opus-4-8',
+  roiEnv(homeO6, { HANDOFF_GUARD_ROI_PROMPTS: '2,4' })).out);
+check('O6 env override prompts=2,4 → replay ~370000–740000 (ช่วงกำหนดเอง)',
+  oO6 && /replay ~370000–740000/.test(ctxOf(oO6)) && /กำหนดเอง/.test(ctxOf(oO6)));
+
+rmSync(homeO1, { recursive: true, force: true });
+[homeO2, homeO3, homeO4, homeO5, homeO6].forEach((h) => rmSync(h, { recursive: true, force: true }));
 
 // ── cleanup ──────────────────────────────────────────────────────────────────
 // marker/state ทั้งหมดอยู่ใน fakeHome → ลบทิ้งทั้งก้อน ไม่กระทบของจริง

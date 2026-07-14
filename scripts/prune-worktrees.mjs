@@ -19,7 +19,7 @@ const repo = argVal('--repo', '');
 const keepRaw = parseInt(argVal('--keep', '5'), 10);
 // ติดลบ = error ดังๆ — clamp เป็น 0 เงียบๆ คือ "ลบ aggressive สุด" ซึ่งตรงข้ามกับที่ผู้ใช้น่าจะตั้งใจ
 if (!Number.isNaN(keepRaw) && keepRaw < 0) {
-  console.error(`--keep ต้องเป็นจำนวนเต็ม ≥ 0 (ได้ ${keepRaw})`);
+  console.error(`--keep must be an integer ≥ 0 (got ${keepRaw})`);
   process.exit(1);
 }
 const keep = Number.isNaN(keepRaw) ? 5 : keepRaw;   // ห้ามใช้ `|| 5` — จะกลืน --keep 0
@@ -121,6 +121,6 @@ try {
   const leftovers = readdirSync(join(repo, '.claude', 'worktrees'), { withFileTypes: true })
     .filter((d) => d.isDirectory() && !registered.has(norm(join(repo, '.claude', 'worktrees', d.name))))
     .map((d) => d.name);
-  if (leftovers.length) console.log(`warn: unregistered leftover dirs (ปิด session เก่า/restart แล้วลบมือ): ${leftovers.join(', ')}`);
+  if (leftovers.length) console.log(`warn: unregistered leftover dirs (close the old session/restart, then remove by hand): ${leftovers.join(', ')}`);
 } catch { /* ไม่มี dir — ข้าม */ }
 console.log(`done: kept=${Math.min(keep, candidates.length)} removed=${dry ? 0 : removed}${dry ? ` would-remove=${removals.length}` : ''} skipped=${skipped.length}`);

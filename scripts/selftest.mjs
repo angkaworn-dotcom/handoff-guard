@@ -64,10 +64,10 @@ const o2 = parse(run('hg-test-b', 185000).out);
 check('185k → decision=block', o2 && o2.decision === 'block');
 check('185k → reason mentions 184320', o2 && /184320/.test(o2.reason || ''));
 check('185k → ctx invoke skill + tier1', o2 && /handoff-guard/.test(ctxOf(o2)) && /tier=tier1/.test(ctxOf(o2)));
-check('185k → ctx มี cost phrase "เหลือ ~" + etaTurns (F3)', o2 && /เหลือ ~/.test(ctxOf(o2)) && /etaTurns=/.test(ctxOf(o2)));
+check('185k → ctx มี cost phrase "tok left" + etaTurns (F3)', o2 && /tok left/.test(ctxOf(o2)) && /etaTurns=/.test(ctxOf(o2)));
 // fire แรกของ session ema=0 → rate คือ FLOOR (fallback ไม่ใช่การวัด) — ห้าม claim "~N เทิร์น" จากมัน
 check('185k fire แรก (rate ยังไม่ settle) → ไม่ claim จำนวนเทิร์นจาก rate floor (F3)',
-  o2 && /rate ยังไม่ settle/.test(ctxOf(o2)) && !/เทิร์นที่ rate นี้/.test(ctxOf(o2)));
+  o2 && /rate hasn't settled yet/.test(ctxOf(o2)) && !/turns at this rate/.test(ctxOf(o2)));
 // bracket = contract ให้ SKILL step 6 copy ตรง: ต้องมี max/model/turns และ rate เป็นเลขเปล่าไม่มีหน่วยติด
 check('185k → bracket มี max/model/turns + rate เลขเปล่า (F1 contract)',
   o2 && /max=256000/.test(ctxOf(o2)) && /model=claude-opus-4-8/.test(ctxOf(o2))
@@ -75,9 +75,9 @@ check('185k → bracket มี max/model/turns + rate เลขเปล่า (
 check('185k same session again → silent (marker)', silent(run('hg-test-b', 186000)));
 const o4 = parse(run('hg-test-c', 218000).out);
 check('218k → decision=block', o4 && o4.decision === 'block');
-check('218k → tier2 urgent (ด่วน)', o4 && /ด่วน/.test(o4.reason || '') && /tier=tier2/.test(ctxOf(o4)));
+check('218k → tier2 urgent', o4 && /urgent/i.test(o4.reason || '') && /tier=tier2/.test(ctxOf(o4)));
 check('218k → ctx มี degrade reason + etaTurns=0 + cost phrase (F3)',
-  o4 && /(auto-compact|degrade)/.test(ctxOf(o4)) && /etaTurns=0/.test(ctxOf(o4)) && /เหลือ ~/.test(ctxOf(o4)));
+  o4 && /(auto-compact|degrade)/.test(ctxOf(o4)) && /etaTurns=0/.test(ctxOf(o4)) && /tok left/.test(ctxOf(o4)));
 
 // ── B. predict — โตสม่ำเสมอ 11.6k/เทิร์น (เป้า T2=217600, K=3 → ยิงที่ ~183.2k < T1=184320) ──
 console.log('\n[B] predict (steady growth ~11.6k/turn)');
@@ -87,8 +87,8 @@ const oP = parse(run('hg-predict', 183200).out);        // ETA = ceil((217600-18
 check('B fire#3 183.2k → predict fires (block, ยังไม่ถึง T1=184320)', oP && oP.decision === 'block' && /tier=predict/.test(ctxOf(oP)));
 check('B predict ctx มี etaTurns', oP && /etaTurns=3/.test(ctxOf(oP)));
 // predict fire ได้เมื่อ ema settle แล้ว → cost phrase ต้องเป็น variant เต็ม (claim จำนวนเทิร์นได้)
-check('B predict (ema settle) → cost phrase claim "~N เทิร์นที่ rate นี้" ได้ (F3 settled)',
-  oP && /เทิร์นที่ rate นี้/.test(ctxOf(oP)));
+check('B predict (ema settle) → cost phrase claim "~N turns at this rate" ได้ (F3 settled)',
+  oP && /turns at this rate/.test(ctxOf(oP)));
 const sB = readState('hg-predict');                    // อ่านก่อน perturb ด้วย run ถัดไป
 check('B state.ema ≈ 11600 (EWMA นิ่ง)', sB && Math.abs(sB.ema - 11600) < 100);
 // B2: "ครั้งเดียว/session" ต้องตัดสินด้วย marker จริง — เช็คเดิมใช้ token ที่เลขคณิตทำให้เงียบเอง
@@ -300,8 +300,8 @@ check('O1 tier1 มี ROI line ตัวเลขช่วงตรง + Recomm
 // O2: ไม่มี stats → default range [5,15] + note "ยังไม่มีสถิติ"
 const homeO2 = mkdtempSync(join(tmpdir(), 'hg-roi2-'));
 const oO2 = parse(run('roi-nostat', 185000, 'claude-opus-4-8', roiEnv(homeO2)).out);
-check('O2 ไม่มี stats → default range + "ยังไม่มีสถิติ"',
-  oO2 && /💰 ROI\(est\)/.test(ctxOf(oO2)) && /ยังไม่มีสถิติ/.test(ctxOf(oO2))
+check('O2 ไม่มี stats → default range + "not enough stats yet"',
+  oO2 && /💰 ROI\(est\)/.test(ctxOf(oO2)) && /not enough stats yet/.test(ctxOf(oO2))
   && /replay ~925000–2775000/.test(ctxOf(oO2)));   // 185000×[5,15]
 
 // O3: HANDOFF_GUARD_ROI=0 → ไม่มีบรรทัด ROI เลย (พฤติกรรม = ก่อน F4)
@@ -324,14 +324,14 @@ writeFileSync(join(homeO5, '.claude', '.handoff-guard', 'stats.jsonl'),
   '{ ขยะ ไม่ใช่ json\n' + JSON.stringify(H(10, 1000)) + '\n');   // 1 เสีย + 1 valid (<5 → default)
 const oO5 = parse(run('roi-corrupt', 185000, 'claude-opus-4-8', roiEnv(homeO5)).out);
 check('O5 stats เสีย → ไม่ crash + block + ROI default range',
-  oO5 && oO5.decision === 'block' && /💰 ROI\(est\)/.test(ctxOf(oO5)) && /ยังไม่มีสถิติ/.test(ctxOf(oO5)));
+  oO5 && oO5.decision === 'block' && /💰 ROI\(est\)/.test(ctxOf(oO5)) && /not enough stats yet/.test(ctxOf(oO5)));
 
 // O6: env override HANDOFF_GUARD_ROI_PROMPTS=2,4 → replay ใช้ [2,4] (ชนะสถิติ)
 const homeO6 = mkdtempSync(join(tmpdir(), 'hg-roi6-'));
 const oO6 = parse(run('roi-ov', 185000, 'claude-opus-4-8',
   roiEnv(homeO6, { HANDOFF_GUARD_ROI_PROMPTS: '2,4' })).out);
 check('O6 env override prompts=2,4 → replay ~370000–740000 (ช่วงกำหนดเอง)',
-  oO6 && /replay ~370000–740000/.test(ctxOf(oO6)) && /กำหนดเอง/.test(ctxOf(oO6)));
+  oO6 && /replay ~370000–740000/.test(ctxOf(oO6)) && /set manually/.test(ctxOf(oO6)));
 
 // O7: per-project pool ต้อง match แม้ session รันใน worktree (cwd ≠ mainRepoRoot — bug เดิม:
 // roiSlug(cwd) ไม่มีวันเท่ากับ slug(mainRepoRoot) ที่ record ใช้ → per-project ตายเงียบใน chip workflow)
@@ -344,7 +344,7 @@ seedStats(homeO7, [
 const oO7 = parse(run('roi-wt', 185000, 'claude-opus-4-8', roiEnv(homeO7),
   { cwd: 'C:\\fake\\proj-o7\\.claude\\worktrees\\lucid-x' }).out);
 check('O7 cwd ใน worktree → per-project ยัง match (ช่วงจาก 5 session ของโปรเจกต์ ไม่ใช่ pool รวม 10)',
-  oO7 && /ช่วงจากสถิติ 5 session/.test(ctxOf(oO7)) && /replay ~3515000–7215000/.test(ctxOf(oO7)));
+  oO7 && /range from 5 sessions of stats/.test(ctxOf(oO7)) && /replay ~3515000–7215000/.test(ctxOf(oO7)));
 
 // O8: config {roi:null} (ค่า unset จาก tool/merge) ห้ามโดน Number() coerce เป็น 0 แล้วปิด ROI เงียบ
 //     — kill switch ต้อง strict {roi:0} เท่านั้น (convention เดียวกับ config max ไม่ valid → fallback)

@@ -1,22 +1,22 @@
 # Context Manager (V2) — Setup / Verify / Tune
 
-> [English](SETUP.en.md)
+> [ภาษาไทย](SETUP.th.md)
 
-> slug ยังเป็น `handoff-guard` · ดีไซน์เต็มดู [docs/V2-design.md](docs/V2-design.md)
+> Slug is still `handoff-guard` · full design in [docs/V2-design.md](docs/V2-design.md)
 
-## องค์ประกอบ (3 ส่วน + 1 state)
+## Components (3 files + 1 state store)
 
-| ไฟล์ | บทบาท |
-|------|-------|
-| `~/.claude/hooks/context-guard.mjs` | **Stop hook** — L1 วัด token + โมเดลจริงทุกเทิร์น + L2 EWMA growth → ETA · เพดาน **auto-detect ตามโมเดล** (fable/mythos 512k · opus 256k · sonnet/haiku 200k · `[1m]` 1M) · ทริก (predict / ≥T1 / ≥T2) → block + ฉีดให้ invoke skill `handoff-guard` |
-| `~/.claude/hooks/session-resume.mjs` | **SessionStart hook** — เจอไฟล์ handoff ในโปรเจกต์/pointer per-project (`pointers/*.json`, หมดอายุ 7 วัน) → ฉีดตัวชี้ให้ session ใหม่อ่าน |
-| `~/.claude/skills/handoff-guard/SKILL.md` | **AI eval (L3+L4)** — ตัดสินว่าควรขึ้น session ใหม่ไหม + ทำ handoff + verify ตอน resume |
-| `~/.claude/.handoff-guard/<session>.state.json` | **L2 state** — `{lastTokens, ema, turns, lastDelta}` ต่อ session (hook เขียน/อ่านเอง คำนวณ EWMA ข้ามเทิร์น) · marker/state ที่ไม่ถูกแตะเกิน 14 วันถูกเก็บกวาดอัตโนมัติ |
-| `~/.claude/.handoff-guard/config.json` | **MAX/T1/T2 ที่ pin เอง** — เขียนโดย `scripts/set-max.mjs` (ผ่านคำสั่ง `/handoff-guard-max`), hook อ่านทุกเทิร์น · **pin ทุกโมเดล (override auto-detect)** · ไม่มีไฟล์ = auto-detect ตามโมเดล |
-| `~/.claude/commands/handoff-guard-max.md` | **slash command** — `/handoff-guard-max <max>` ตั้งเพดานเองโดยไม่ต้องแก้ `settings.json` |
-| `~/.claude/commands/handoff-guard-update.md` | **slash command** — `/handoff-guard-update` อัปเดต handoff-guard + skill `handoff` เป็นเวอร์ชันล่าสุด (เช็คก่อน ยืนยันแล้วค่อยอัปเดต) |
-| `~/.claude/skills/handoff-guard/scripts/prune-worktrees.mjs` | **เก็บกวาด worktree ของ chip** — session จาก chip เรียกเอง (step 3) · เก็บ 5 อันล่าสุดเป็น snapshot, ถอนทะเบียนที่เหลือ (ข้าม dirty / locked / ที่ยังถูกใช้ · pin ถาวรด้วย `git worktree lock` หรือ `--keep-list`) · **ไม่ลบ branch** |
-| `~/.claude/.handoff-guard/pointers/<slug>.json` + `handoffs/` | **pointer per-worktree** (key ด้วย path เต็ม, หมดอายุ 7 วัน) + ที่เก็บ handoff doc ถาวร (ไม่ใช้ OS temp — โดน Disk Cleanup กวาดได้) |
+| File | Role |
+|------|------|
+| `~/.claude/hooks/context-guard.mjs` | **Stop hook** — L1 measures real tokens + the real model every turn + L2 EWMA growth → ETA · ceiling **auto-detects per model** (fable/mythos 512k · opus 256k · sonnet/haiku 200k · `[1m]` 1M) · triggers (predict / ≥T1 / ≥T2) → blocks and injects an instruction to invoke skill `handoff-guard` |
+| `~/.claude/hooks/session-resume.mjs` | **SessionStart hook** — finds a handoff file in the project/per-project pointer (`pointers/*.json`, 7-day expiry) → injects a pointer for the new session to read |
+| `~/.claude/skills/handoff-guard/SKILL.md` | **AI eval (L3+L4)** — decides whether to start a new session + does the handoff + verifies on resume |
+| `~/.claude/.handoff-guard/<session>.state.json` | **L2 state** — `{lastTokens, ema, turns, lastDelta}` per session (the hook reads/writes this itself, computing EWMA across turns) · markers/state untouched for over 14 days are swept automatically |
+| `~/.claude/.handoff-guard/config.json` | **Your own MAX/T1/T2** — written by `scripts/set-max.mjs` (via the `/handoff-guard-max` command), read by the hook every turn · **pins every model (overrides auto-detect)** · no file = auto-detect per model |
+| `~/.claude/commands/handoff-guard-max.md` | **slash command** — `/handoff-guard-max <max>` set your own ceiling without touching `settings.json` |
+| `~/.claude/commands/handoff-guard-update.md` | **slash command** — `/handoff-guard-update` updates handoff-guard + the `handoff` skill to the latest (checks first, updates after confirmation) |
+| `~/.claude/skills/handoff-guard/scripts/prune-worktrees.mjs` | **Chip worktree cleanup** — the chip-spawned session runs this itself (step 3) · keeps the 5 most recent as snapshots, unregisters the rest (skips dirty / locked / in-use ones · pin permanently with `git worktree lock` or `--keep-list`) · **never deletes branches** |
+| `~/.claude/.handoff-guard/pointers/<slug>.json` + `handoffs/` | **Per-worktree pointer** (keyed by full path, 7-day expiry) + permanent handoff doc storage (not OS temp — Disk Cleanup can sweep that) |
 
 ## settings.json (`~/.claude/settings.json`)
 
@@ -37,65 +37,65 @@
 }
 ```
 
-> เปลี่ยน path ตามเครื่อง · บน Windows ใช้ forward slash ใน path ของ node ได้
+> Adjust the path for your machine · on Windows you can use forward slashes in the node path.
 
-## วิธี token ถูกวัด (ทำไมแม่น)
+## How tokens are measured (why it's accurate)
 
-Stop hook รับ `transcript_path` ทาง stdin → อ่าน JSONL **จากท้ายไฟล์** (ไม่โหลดทั้งไฟล์ — transcript โตหลาย MB ตอนใกล้เต็ม) → หา `message.usage` ของ assistant message **ล่าสุดของ main conversation** →
-`input_tokens + cache_read_input_tokens + cache_creation_input_tokens + output_tokens` = ขนาด context จริงที่ API รายงาน
-(ไม่ใช่เดาจากจำนวนบรรทัด/ตัวอักษร) · entry ของ subagent (`isSidechain`) ถูกข้าม — context ของ subagent เป็นคนละก้อน ถ้านับปนจะทำ delta/EWMA เพี้ยน
+The Stop hook receives `transcript_path` via stdin → reads the JSONL **from the tail of the file** (never loads the whole file — transcripts grow to many MB right when context is nearly full) → finds `message.usage` on the **latest main-conversation** assistant message →
+`input_tokens + cache_read_input_tokens + cache_creation_input_tokens + output_tokens` = the real context size the API reported
+(not a guess based on line count/character count) · subagent entries (`isSidechain`) are skipped — a subagent's context is a separate pool; counting it would corrupt the delta/EWMA.
 
-## วิธี predict ทำงาน (L2)
+## How predict works (L2)
 
-ทุกเทิร์น hook คำนวณ `delta = tokens - lastTokens` → อัปเดต **EWMA**: `ema = α·delta + (1-α)·ema` (α=0.4 ถ่วงล่าสุด, ทน spike อ่านไฟล์ใหญ่) → `etaTurns = ceil((T2 - tokens) / max(ema, 500))`
-ทริก **predict** เมื่อ `etaTurns ≤ K(3)` & มี ≥2 observation & token ยังไม่ถึง T1 → เตือนล่วงหน้าก่อนวิกฤต (`delta` ติดลบ = compaction → ไม่นับ, reset baseline + re-arm marker)
-**overshoot guard**: ถ้า delta ล่าสุดตัวเดียวก็พาทะลุ T2 ได้ในเทิร์นหน้า (`tokens + lastDelta ≥ T2`) → ทริก predict ทันทีไม่รอ EWMA ปรับตัว (กันเคส "เทิร์นยักษ์" อ่านไฟล์ใหญ่รวดเดียวข้าม T1 ไป T2)
+Every turn the hook computes `delta = tokens - lastTokens` → updates the **EWMA**: `ema = α·delta + (1-α)·ema` (α=0.4, weighted toward recent, resilient to spikes from reading large files) → `etaTurns = ceil((T2 - tokens) / max(ema, 500))`
+**predict** fires when `etaTurns ≤ K(3)` & there are ≥2 observations & tokens haven't reached T1 yet → warns before things get critical (a negative `delta` = compaction → not counted, baseline reset + markers re-armed)
+**Overshoot guard**: if the latest delta alone could blow past T2 next turn (`tokens + lastDelta ≥ T2`) → predict fires immediately without waiting for the EWMA to adjust (covers the "giant turn" case that jumps from below T1 straight past T2).
 
 ## Verify
 
-**1. ทดสอบสคริปต์แบบ deterministic** (ไม่ต้องรอ session โต) — มี **2 ชุด ต้องผ่านทั้งคู่**:
+**1. Deterministic script tests** (no need to wait for a session to grow) — there are **two suites; both must pass**:
 ```
-node ~/.claude/skills/handoff-guard/scripts/selftest.mjs    # ต้องขึ้น ALL PASS
-node <repo>/scripts/updater-selftest.mjs                    # ต้องขึ้น ALL PASS — รันจาก repo checkout เท่านั้น
+node ~/.claude/skills/handoff-guard/scripts/selftest.mjs    # should print ALL PASS
+node <repo>/scripts/updater-selftest.mjs                    # should print ALL PASS — run from a repo checkout only
 ```
-- `selftest.mjs` ครอบ hook: absolute (183k ไม่ block · 185k tier1 · 218k tier2 · fire ซ้ำเงียบ) + **predict** (โตสม่ำเสมอ → ยิงตอน ETA≤K ก่อน 184k · "ครั้งเดียว/session" ตัดสินด้วย marker จริง (α=0 คุมเลขคณิตไม่ให้ช่วยเงียบ) · cold-start turns<2 ไม่ยิง · spike เดียวไม่ทำ ETA กระโดด · compaction delta ลบไม่พัง) + **sidechain** ของ subagent ถูกข้าม (ไม่พัง EWMA) + **re-arm** ลบ marker ครบทุกตัวหลัง compact + **overshoot guard** เทิร์นยักษ์ยิง predict ทันที + **sweep** marker/state เก่าเกิน 14 วันถูกกวาด + เพดานต่อโมเดล + **env MAX override ข้าม t1/t2 ที่ pin ในไฟล์** (คิด % ใหม่จาก env MAX · env T1/T2 ยังชนะเสมอ) + kill switch (รวม env ว่าง `""` ไม่ mask config `{max:0}` · config max ไม่ใช่ตัวเลข → fallback เพดานโมเดล ไม่ใช่ NaN ปิด guard เงียบ) + **F3 cost warnings** (ทุก tier มี cost phrase "เหลือ ~ tok ก่อนเพดาน" + `etaTurns` ใน bracket · tier2 มีเหตุผล auto-compact/degrade + `etaTurns=0`) + **F4 ROI engine** (มี stats ≥5 → ช่วง ROI + label ตรงตาราง (tier2→Critical, tier1 ROI≥20→Recommended) · ไม่มี stats → default range + "ยังไม่มีสถิติ" · `HANDOFF_GUARD_ROI=0` → ไม่มีบรรทัด ROI · stats เสีย → ไม่ crash · env override prompts) · ทุกเช็คเงียบ assert exit 0 ด้วย (hook crash เงียบไม่ถูกนับเป็นผ่าน)
-- `updater-selftest.mjs` ครอบ pipeline ติดตั้ง/อัปเดต (hermetic — fakeHome + mock GitHub, ไม่แตะ `~/.claude` จริง/เน็ต): install สด + idempotent · `update --check` ไม่ false-positive จาก CRLF≡LF (#7) · tar extract บน path `C:\` (#6) · detect เนื้อต่างจริง + `--check` ไม่เขียนทับ (อ่านไฟล์กลับยืนยัน) · update full end-to-end · `ensure-handoff --check` ทั้งเคสมีเวอร์ชันใหม่และเคส CRLF≡LF · **G** ปลายทางของ installMap (เทียบ full-equality + negative control ว่า dest วางผิดที่ถูก reject) · **H** ทุก dest ใน installMap โผล่จริงหลัง full update (+ ไม่มี `.en.md` หลุด) · **I** ลำดับใน installMap (scripts เรียง provider ก่อน importer: `update.mjs` → `ensure-handoff.mjs` → `install.mjs` — กัน mixed-version window ถ้า copy ถูกขัดกลางคัน) · **J** drift guard เทียบ repo จริง (ทุก hook จริง + ทุก command ที่ไม่ใช่ `.en.md` ใน checkout ต้องอยู่ใน installMap) · **K** `prune-worktrees.mjs` บน fixture git repo + worktree จริง (`--dry` ไม่แตะอะไร · ลบเฉพาะ clean+เก่าเกิน keep แล้วถอนทะเบียนจริง · dirty / locked / keep-list (รวม case-insensitive) / recent / self / worktree นอก `.claude/worktrees` รอดครบทุกชั้น · `--keep 0` ไม่ถูกกลืนเป็น default · `--keep` ติดลบ → error ไม่ใช่ clamp เป็น 0 · rename ที่ต้นทางใต้ ignore-dirt แต่ปลายทางเป็นไฟล์จริงนับ dirty · dir ตกค้างที่ git ไม่รู้จักได้แค่คำเตือน ไม่ถูกลบ) · **L** `set-max.mjs` เขียน config แบบ merge (field ที่ไม่รู้จักเช่น `windows` ไม่หาย ทั้งตั้งค่าปกติและ kill switch) + floor t1/t2 (ใส่เป็น % โดยเข้าใจผิด → ปฏิเสธ ไม่เขียนไฟล์) · **M** update full ที่ส่วน handoff ล้มเหลว → exit 1 + ไม่มี banner "🎉 อัปเดตเสร็จ" หลอก · **N** `ensure-handoff` เจอ SKILL.md torn (ว่าง/เขียนค้าง) → self-heal จาก vendored ไม่ใช่ "already installed" (ไฟล์สมบูรณ์ยัง already ตามเดิม) · **O** `install.mjs` กับ settings.json รูปทรงแปลก (`null`/`[]` → เตือน+ข้าม merge ไม่ crash/ไม่เขียนทับเงียบ · ชื่อไฟล์ hook ใน field อื่นไม่หลอกว่า "ติดตั้งแล้ว") · **P** sanity check `name: handoff` แบบ anchored (skill ผิดตัวเช่น `handoff-guard` ไม่ผ่าน · vendored เนื้อผิด → fail ดัง ไม่ติดตั้งขยะ) · **Q** `session-resume` (summarize "งานถัดไป" ไม่หยิบ bullet ข้าม section · path match case-insensitive บน win32) · **R** `handoff-stats.mjs` (F1 — Session Economics): `record-handoff` เขียน JSONL ถูกโครง + doc metrics ตาม heuristic (est/bytes/compression ratio) · doc อ่านไม่ได้ → metrics = `null` ไม่พัง · `record-resume` pass/fail · `summary` คำนวณ avg/median tokens · turns · rate · compression · resume-rate ถูก · บรรทัด JSON เสียถูกข้าม ไม่ crash · ไม่มีข้อมูล → exit 0 · installMap รวม `handoff-stats.mjs` · **S** `scan-preload.mjs` (F2 — Session Economics): `--json` parse ได้ + `max` default 200000 · est ต่อหมวดตรง heuristic (CLAUDE.md global 400 ascii → 100, project 40 → 10) · `totalEstTokens` = ผลรวมทุกหมวด · ไฟล์ >1MB ถูกข้ามและนับ `skipped` · skill est มาจาก frontmatter · text mode มี "รวม preload" + % · `--max` override · installMap รวม `scan-preload.mjs` + `handoff-guard-scan.md` (ไม่รวม `.en.md`) · เช็ค worker liveness (mock HTTP server ไม่ตายกลางชุดเทสต์) · **ต้องรันจาก repo checkout** (clone/worktree) — ทดสอบการติดตั้งจากโครง repo จริง สำเนาใน `~/.claude` ไม่มี `hooks/` `commands/` ครบ
+- `selftest.mjs` covers the hook: absolute (183k doesn't block · 185k tier1 · 218k tier2 · repeat fires stay silent) + **predict** (steady growth → fires at ETA≤K before 184k · "once per session" is decided by the real marker (α=0 keeps the arithmetic from silencing it) · cold-start turns<2 doesn't fire · a single spike doesn't make the ETA jump · compaction with a negative delta doesn't break) + subagent **sidechain** entries are skipped (EWMA stays intact) + **re-arm** removes every marker after compaction + **overshoot guard** fires predict immediately on a giant turn + **sweep** clears markers/state older than 14 days + per-model ceilings + **env MAX override skips file-pinned t1/t2** (recomputed as % of the env MAX · explicit env T1/T2 still always win) + kill switch (incl. an empty env `""` not masking a config `{max:0}` · a non-numeric config max falls back to the model ceiling instead of NaN silently disabling the guard) + **F3 cost warnings** (every tier carries a cost phrase "~N tokens left before the ceiling" + `etaTurns` in the bracket · tier2 adds the auto-compact/degrade rationale + `etaTurns=0`) + **F4 ROI engine** (with ≥5 stats → ROI range + label per the table (tier2→Critical, tier1 ROI≥20→Recommended) · no stats → default range + "not enough stats yet" · `HANDOFF_GUARD_ROI=0` → no ROI line · corrupt stats → no crash · env override prompts) · every silent check also asserts exit 0 (a hook that crashes silently no longer counts as passing)
+- `updater-selftest.mjs` covers the install/update pipeline (hermetic — fakeHome + mock GitHub; never touches the real `~/.claude` or the network): fresh install + idempotency · `update --check` doesn't false-positive on CRLF≡LF (#7) · tar extract on a `C:\` path (#6) · detects a real content change and `--check` doesn't overwrite (verified by reading the file back) · full end-to-end update · `ensure-handoff --check` for both the new-version and the CRLF≡LF cases · **G** installMap destinations (full-equality, incl. a negative control that a mis-placed dest is rejected) · **H** every installMap dest is actually present after a full update (+ no `.th.md` leaks through) · **I** installMap ordering (scripts provider-before-importer: `update.mjs` → `ensure-handoff.mjs` → `install.mjs`, so an interrupted copy never leaves a new importer beside an old provider) · **J** real-repo drift guard (every real hook + every non-`.th.md` command in the actual checkout appears in installMap) · **K** `prune-worktrees.mjs` against a fixture git repo with real worktrees (`--dry` touches nothing · removes only clean worktrees older than the keep window and truly unregisters them · dirty / locked / keep-list (incl. case-insensitive) / recent / self / worktrees outside `.claude/worktrees` all survive · `--keep 0` isn't swallowed into the default · a negative `--keep` errors instead of clamping to 0 · a rename whose source is under ignore-dirt but whose target is a real file counts as dirty · leftover dirs git doesn't know about only get a warning, never deleted) · **L** `set-max.mjs` writes config as a merge (unknown fields such as `windows` survive, both for normal set and the kill switch) + a t1/t2 floor (values mistakenly given as % are rejected without writing the file) · **M** a full update whose handoff step fails → exit 1 with no misleading "🎉 done" banner · **N** `ensure-handoff` finding a torn SKILL.md (empty/half-written) self-heals from the vendored copy instead of reporting "already installed" (an intact file still reports already) · **O** `install.mjs` with malformed settings.json (`null`/`[]` → warn + skip merge without crashing or silently clobbering · a hook filename appearing in some other field doesn't fake "already installed") · **P** anchored `name: handoff` sanity checks (the wrong skill, e.g. `handoff-guard`, doesn't pass · corrupted vendored content fails loudly instead of installing garbage) · **Q** `session-resume` (the "next" summary doesn't grab bullets from a later section · path matching stays case-insensitive on win32) · **R** `handoff-stats.mjs` (F1 — Session Economics): `record-handoff` writes well-formed JSONL + doc metrics via the heuristic (est/bytes/compression ratio) · an unreadable doc → `null` metrics without breaking · `record-resume` pass/fail · `summary` computes avg/median tokens · turns · rate · compression · resume-rate correctly · corrupt JSON lines are skipped without crashing · no data → exit 0 · installMap includes `handoff-stats.mjs` · **S** `scan-preload.mjs` (F2 — Session Economics): `--json` parses + `max` defaults to 200000 · per-category est matches the heuristic (global CLAUDE.md 400 ascii → 100, project 40 → 10) · `totalEstTokens` = sum of all categories · files >1MB are skipped and counted in `skipped` · skill est comes from frontmatter · text mode has "total preload" + % · `--max` override · installMap includes `scan-preload.mjs` + `handoff-guard-scan.md` (not `.th.md`) · a worker-liveness check (the mock HTTP server didn't die mid-suite). **Run it from a repo checkout** (clone/worktree) — it tests installing from the real repo layout; the installed copy under `~/.claude` lacks `hooks/` and `commands/`.
 
-**2. Live test** (พิสูจน์ว่า `decision:block` ปลุก Claude จริงในเวอร์ชันนี้):
-- ตั้งชั่วคราว `HANDOFF_GUARD_THRESHOLD=1` (env หรือแก้ default) → คุยอะไรก็ได้ 1 ประโยค → Claude ควรถูก "block" แล้วเด้งมา invoke `handoff-guard` ทันที
-- ผ่านแล้วคืนค่า 184320 + ลบ marker เก่า: ลบ `~/.claude/.handoff-guard/*.{p,t1,t2}` + `*.state.json`
+**2. Live test** (proves that `decision:block` actually wakes Claude up in this version):
+- Temporarily set `HANDOFF_GUARD_THRESHOLD=1` (env, or edit the default) → say any one sentence → Claude should get "blocked" and immediately bounce to invoking `handoff-guard`
+- Once verified, restore to 184320 + delete the old markers: delete `~/.claude/.handoff-guard/*.{p,t1,t2}` + `*.state.json`
 
-## เพดาน MAX มาจากไหน (priority)
+## Where the MAX ceiling comes from (priority)
 
-hook เลือก MAX ต่อเทิร์นตามลำดับ **หยุดที่ตัวแรกที่มีค่า**:
+The hook picks the MAX for each turn in this order, **stopping at the first one that has a value**:
 
-1. **env** `HANDOFF_GUARD_MAX` — override ชั่วคราว/testing (ชนะทุกอย่าง)
-2. **config.json** (`fileConfig.max`) — pin ถาวรผ่าน `/handoff-guard-max <n>` · **override auto-detect ทุกโมเดล**
-3. **auto-detect จากโมเดล** — อ่าน `message.model` ของ assistant message ล่าสุดใน transcript → `[1m]` (long-context) 1M · `fable`/`mythos` 512k (window ใหญ่มาก — spec 1M, ตั้ง 512k เป็นกันชนกันเตือนเร็วเกิน) · `opus` 256k · `sonnet`/`haiku`/ไม่รู้จัก 200k (ไม่รู้จัก = สมมติเล็กสุด ยิงเร็วดีกว่าไม่ยิง)
-   > pattern พวกนี้ผูกกับ format ชื่อโมเดลที่เปลี่ยนได้ — ถ้าโมเดลใหม่ detect ไม่ติด (โดน fallback 200k เตือนถี่เกิน) เพิ่ม mapping เองได้ใน `config.json`: `{"windows": {"<regex>": <tokens>}}` เช็คก่อน built-in โดยไม่ต้องแก้โค้ด
+1. **env** `HANDOFF_GUARD_MAX` — temporary/testing override (wins over everything)
+2. **config.json** (`fileConfig.max`) — pinned permanently via `/handoff-guard-max <n>` · **overrides auto-detect for every model**
+3. **auto-detect from the model** — reads `message.model` from the latest assistant message in the transcript → `[1m]` (long-context) 1M · `fable`/`mythos` 512k (a very large real window — spec says 1M; 512k is set as a buffer so the guard doesn't warn too early) · `opus` 256k · `sonnet`/`haiku`/unknown 200k (unknown = assume the smallest, better to warn too soon than not at all)
+   > These patterns are tied to model-name formats that can change — if a new model isn't detected (falls back to 200k, warning too often), add your own mapping in `config.json`: `{"windows": {"<regex>": <tokens>}}`, checked before the built-ins, no code edit needed
 
-T1/T2 ก็ priority เดียวกัน (env → config → `round(MAX×0.72)` / `round(MAX×0.85)`) **ยกเว้น**: ถ้า env `HANDOFF_GUARD_MAX` ถูกตั้ง t1/t2 ใน config.json จะถูกข้าม (คิด % ใหม่จาก env MAX — t1/t2 ในไฟล์คำนวณจาก max ตัวเก่า เอามาใช้กับ MAX ใหม่จะเพี้ยนถึงขั้น T1 > MAX = เงียบตลอด) เว้นแต่ตั้ง env `HANDOFF_GUARD_THRESHOLD`/`THRESHOLD2` เองก็ชนะเสมอ · โมเดลเปลี่ยนกลางเซสชันได้ → เพดานปรับตามอัตโนมัติถ้าไม่ได้ pin
+T1/T2 follow the same priority (env → config → `round(MAX×0.72)` / `round(MAX×0.85)`) **except**: if env `HANDOFF_GUARD_MAX` is set, any t1/t2 pinned in config.json are ignored (recomputed as % of the new env MAX — the file's t1/t2 were derived from the old max, and reusing them against a new MAX can drift so far that T1 > MAX = permanently silent) unless you also set env `HANDOFF_GUARD_THRESHOLD`/`THRESHOLD2` yourself, which always win · the model can change mid-session, and the ceiling adjusts automatically as long as it isn't pinned
 
-> **สลับ Opus/Sonnet บ่อย → อย่า pin** (ปล่อย auto-detect) · **จูน auto-compact ให้โมเดลเดียว → pin ด้วย `/handoff-guard-max`** · **อยากปิด guard สนิท → `/handoff-guard-max 0`** (เขียน `{max:0}` → hook exit ทันทีไม่เตือน · เปิดคืนด้วย `reset`)
+> **Switching between Opus/Sonnet often → don't pin** (let it auto-detect) · **Tuning auto-compact for one model → pin it with `/handoff-guard-max`** · **Want the guard fully off → `/handoff-guard-max 0`** (writes `{max:0}` → the hook exits immediately, no warnings · turn back on with `reset`)
 
 ## Tune
 
-| อยากได้ | ทำ |
+| Want | Do |
 |--------|----|
-| ล็อกเพดาน (MAX) เองแบบเร็ว ไม่แตะ settings.json | สั่ง `/handoff-guard-max <max>` (เช่น `/handoff-guard-max 200000`) — คำนวณ T1/T2 ให้ (72%/85%), เขียน config.json, มีผลเทิร์นถัดไป · **pin ทุกโมเดล** · `/handoff-guard-max reset` = กลับไป auto-detect · ติดตั้งครั้งเดียว: `cp commands/handoff-guard-max.md ~/.claude/commands/` |
-| เตือน (absolute) เร็ว/ช้าขึ้น (แบบ manual/override) | env `HANDOFF_GUARD_THRESHOLD` / `HANDOFF_GUARD_THRESHOLD2` (default = `round(MAX×0.72)` / `round(MAX×0.85)`) — env ชนะ config.json เสมอ |
-| บังคับเพดาน (display) แบบ manual/override | env `HANDOFF_GUARD_MAX` (default = auto-detect ตามโมเดล) — เกินนี้เริ่มเสียบริบท · T1/T2 คิด % ใหม่จากค่านี้อัตโนมัติ (t1/t2 ที่ pin ในไฟล์ถูกข้าม) |
-| predict เตือนล่วงหน้ามาก/น้อย | env `HANDOFF_GUARD_PREDICT_TURNS` (K, default 3) — มาก=เตือนเบาๆ เร็ว, น้อย=ดึงใกล้ค่อยเตือน |
-| predict ไวต่อ spike มาก/น้อย | env `HANDOFF_GUARD_EMA_ALPHA` (default 0.4) — สูง=react ไว แต่กระตุกตาม spike, ต่ำ=นิ่งแต่ lag |
-| ปิดบรรทัด ROI (F4) ในข้อความเตือน | env `HANDOFF_GUARD_ROI=0` หรือ config.json `{"roi": 0}` — พฤติกรรมกลับไปเท่าก่อน F4 ทุกประการ (ยัง block ตาม tier ปกติ) · เทียบ strict เท่านั้น: `{"roi": null}` หรือค่าอื่นไม่ปิด (ค่า config ไม่ valid ห้ามเปลี่ยนพฤติกรรมเงียบ) |
-| กำหนดช่วง "เทิร์นที่เหลือ" ของ ROI เอง (แทนสถิติ/default) | env `HANDOFF_GUARD_ROI_PROMPTS=lo,hi` (เช่น `2,4`) หรือ config.json `{"roiPrompts": [lo, hi]}` — env ชนะ config · ไม่ตั้ง = ใช้ p25–p75 จากสถิติ (ต้องมี ≥5 session) ไม่ถึงก็ default `[5,15]` |
-| auto-compact ยิงก่อน T1 (ไม่ทันเตือน) | pin เพดานต่ำลง `/handoff-guard-max <ต่ำกว่าจุด compact จริง>` — สังเกตจาก live ว่า compaction เกิดที่กี่ token |
-| รีเซ็ตการเตือนของ session | ลบ marker `~/.claude/.handoff-guard/<session_id>.{p,t1,t2}` + `.state.json` (รีเซ็ต EWMA) |
-| อัปเดตทุกอย่างเป็นเวอร์ชันล่าสุด (handoff-guard + skill `handoff`) | `/handoff-guard-update` ในแชท หรือ `node ~/.claude/skills/handoff-guard/scripts/update.mjs --check` (ดูอย่างเดียว) → รันโดยไม่ใส่ `--check` (อัปเดต + สำรอง `.bak` · restart session) · เฉพาะส่วนของ Matt: `ensure-handoff.mjs --check`/`--update` |
+| Change the context ceiling (MAX) quickly, without touching settings.json | Run `/handoff-guard-max <max>` (e.g. `/handoff-guard-max 200000`) — auto-computes T1/T2 (72%/85%), writes config.json, takes effect next turn · **pins every model** · `/handoff-guard-max reset` reverts to auto-detect per model · install this command once: `cp commands/handoff-guard-max.md ~/.claude/commands/` |
+| Warn (absolute) earlier/later (manual/override) | env `HANDOFF_GUARD_THRESHOLD` / `HANDOFF_GUARD_THRESHOLD2` (default = `round(MAX×0.72)` / `round(MAX×0.85)`) — env always wins over config.json |
+| Force the ceiling (display) (manual/override) | env `HANDOFF_GUARD_MAX` (default = auto-detect per model) — beyond this, context quality starts degrading · T1/T2 are automatically recomputed as % of this value (file-pinned t1/t2 are skipped) |
+| More/less predict lead time | env `HANDOFF_GUARD_PREDICT_TURNS` (K, default 3) — higher = warns earlier/softer, lower = waits until closer before warning |
+| More/less predict sensitivity to spikes | env `HANDOFF_GUARD_EMA_ALPHA` (default 0.4) — higher = reacts faster but jumpier with spikes, lower = smoother but laggier |
+| Disable the ROI line (F4) in warnings | env `HANDOFF_GUARD_ROI=0` or config.json `{"roi": 0}` — behavior reverts to exactly pre-F4 (tier blocking still applies) · strict comparison only: `{"roi": null}` or any other value does NOT disable (an invalid config value must never silently change behavior) |
+| Set the ROI "remaining turns" range yourself (instead of stats/default) | env `HANDOFF_GUARD_ROI_PROMPTS=lo,hi` (e.g. `2,4`) or config.json `{"roiPrompts": [lo, hi]}` — env wins over config · unset = p25–p75 from stats (needs ≥5 sessions), otherwise default `[5,15]` |
+| Auto-compact fires before T1 (warning doesn't arrive in time) | Pin a lower ceiling `/handoff-guard-max <below where compaction actually happens>` — observe from live use at what token count compaction actually happens |
+| Reset a session's warning state | Delete markers `~/.claude/.handoff-guard/<session_id>.{p,t1,t2}` + `.state.json` (resets the EWMA) |
+| Update everything to the latest (handoff-guard + the `handoff` skill) | `/handoff-guard-update` in chat, or `node ~/.claude/skills/handoff-guard/scripts/update.mjs --check` (read-only) → run without `--check` (update + `.bak` backups · restart session) · Matt's part only: `ensure-handoff.mjs --check`/`--update` |
 
-## ข้อจำกัด (ตรงไปตรงมา)
-- Stop hook fire **หลัง** Claude จบเทิร์น — ถ้าเทิร์นเดียวพุ่งทะลุหลาย tier จะ fire tier สูงสุดที่ถึง
-- **predict ต้องมีอย่างน้อย 2 เทิร์น** กว่า EWMA จะตั้งตัว — session ที่พุ่งเร็วมากตั้งแต่ 2 เทิร์นแรกอาจข้าม predict ไปโดน absolute tier แทน (ตั้งใจ — fail-safe คุมอยู่)
-- EWMA ทำนายจาก growth ที่ผ่านมา — ถ้าพฤติกรรมเปลี่ยนกะทันหัน (เริ่มอ่านไฟล์ใหญ่รัวๆ) ETA จะ lag 1-2 เทิร์นก่อนปรับ (α คุม trade-off ไว/นิ่ง)
-- ถ้า auto-compact ของ Claude Code ยิง **ก่อน** ถึง threshold → ต้องลด threshold (จูนตามที่สังเกตจริง)
-- การตัดสินใจ handoff (จะ handoff ไหม/ตอนไหน) **ทำให้ deterministic ไม่ได้** (เป็นดุลพินิจ model) — guard นี้คุมเรื่อง handoff/context เท่านั้น · ต่อ session ใหม่ใช้ `/clear` ไม่ใช่ chip (chip = git worktree ใหม่ทุก handoff)
+## Limitations (honest ones)
+- The Stop hook fires **after** Claude finishes its turn — if a single turn blows through multiple tiers, only the highest tier that was reached fires
+- **predict needs at least 2 turns** for the EWMA to settle — a session that spikes very fast in its first 2 turns may skip predict and hit the absolute tier instead (intentional — the fail-safe still covers it)
+- EWMA predicts from past growth — if behavior changes suddenly (e.g. starts reading large files rapidly), the ETA will lag 1-2 turns before adjusting (α controls the react-fast vs. stay-smooth trade-off)
+- If Claude Code's auto-compact fires **before** the threshold is reached → you need to lower the threshold (tune based on what you actually observe)
+- The handoff decision (whether/when to hand off) **cannot be made deterministic** (it's a model judgment call) — this guard only handles handoff/context concerns · continue in a new session via `/clear`, not a chip (a chip spawns a fresh git worktree every handoff)

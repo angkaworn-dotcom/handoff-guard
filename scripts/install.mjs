@@ -18,7 +18,7 @@ const hooksDir = join(claude, 'hooks');
 const cmdDir = join(claude, 'commands');
 
 // 1) คัดลอกทุกไฟล์ตาม installMap ตัวเดียว (single source of truth — update.mjs ใช้ list เดียวกันเทียบ diff)
-//    ครอบ SKILL.md/SETUP.md + hooks/* + commands/*.md (ตัด .en.md) + scripts/ + vendor/ ทั้งหมด
+//    ครอบ SKILL.md/SETUP.md + hooks/* + commands/*.md (ตัด .th.md) + scripts/ + vendor/ ทั้งหมด
 //    เพิ่ม/ลบไฟล์ที่ต้องติดตั้ง = แก้ที่ installMap ที่เดียว ไม่มี hardcode ซ้ำที่นี่
 for (const [src, dest] of installMap(repo, claude)) {
   mkdirSync(dirname(dest), { recursive: true });
@@ -41,7 +41,7 @@ if (existsSync(settingsPath)) {
   } catch {
     settings = {};
     canMerge = false;
-    console.error('⚠️ settings.json ไม่ใช่ JSON object ที่ parse ได้ — ข้าม merge, เพิ่ม hooks มือตาม settings.example.json');
+    console.error('⚠️ settings.json is not a parseable JSON object — skipping merge, add hooks manually per settings.example.json');
   }
 }
 if (canMerge) {
@@ -72,7 +72,7 @@ if (canMerge) {
     renameSync(tmpS, settingsPath);
     console.log('✅ settings.json ' + (hadFile ? 'merged (backup → settings.json.bak)' : 'created'));
   } else {
-    console.log('✅ settings.json — hooks ครบแล้ว (ไม่แตะ)');
+    console.log('✅ settings.json — hooks already complete (untouched)');
   }
 }
 
@@ -80,4 +80,4 @@ if (canMerge) {
 const r = await ensureHandoff();
 console.log((r.installed ? '✅ ' : '⚠️ ') + r.message);
 
-console.log('\n🎉 ติดตั้งเสร็จ — restart Claude Code session เพื่อโหลด skill/hooks');
+console.log('\n🎉 Install done — restart Claude Code session to load the skill/hooks');

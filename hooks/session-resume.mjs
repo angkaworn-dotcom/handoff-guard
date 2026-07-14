@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 // SessionStart hook — auto-resume
-// เมื่อเปิด/ต่อ session ถ้าเจอ handoff "ของโปรเจกต์นี้" → ฉีดตัวชี้ให้ Claude อ่านก่อนเริ่ม
-// ปิดวงจร: handoff-guard เขียน handoff ไว้ → session ใหม่อ่านเองอัตโนมัติ ไม่ต้องพึ่งความจำ
+// When a session opens/resumes, if a handoff "for this project" is found → inject a pointer for Claude to read before starting
+// Closes the loop: handoff-guard wrote a handoff → the new session reads it automatically, no reliance on memory
 //
-// v2: pointer เป็น per-project (~/.claude/.handoff-guard/pointers/*.json) แทน last-handoff.txt slot เดียว
-//   - กัน handoff ข้ามโปรเจกต์ปนกัน + กันเขียนทับกันเมื่อทำหลายโปรเจกต์คู่กัน
-//   - pointer หมดอายุ MAX_AGE_DAYS วัน (งานจบแล้วไม่เด้ง noise ค้าง)
-//   - ข้าม pointer ที่ doc ปลายทางหายแล้ว (เช่นโดน Disk Cleanup)
+// v2: the pointer is per-project (~/.claude/.handoff-guard/pointers/*.json) instead of a single last-handoff.txt slot
+//   - prevents handoffs from cross-contaminating between projects + prevents overwrites when working on several projects in parallel
+//   - the pointer expires after MAX_AGE_DAYS days (once the work is done, it doesn't keep popping up as stale noise)
+//   - a pointer whose target doc has disappeared (e.g. swept by Disk Cleanup) is skipped
 import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
@@ -21,8 +21,9 @@ let input = {};
 try { input = JSON.parse(readStdin() || '{}'); } catch { /* ignore */ }
 const cwd = input.cwd || process.cwd();
 
-// normalize path สำหรับเทียบ — lowercase เฉพาะ fs ที่ case-insensitive (win32/darwin):
-// บน Linux path ต่าง case คือคนละโฟลเดอร์จริง lowercase จะทำ pointer ของคนละโปรเจกต์ match กันผิด
+// normalize the path for comparison — lowercase only on case-insensitive filesystems (win32/darwin):
+// on Linux, paths that differ only in case are genuinely different folders — lowercasing them would
+// wrongly match pointers belonging to different projects
 const CASE_INSENSITIVE_FS = process.platform === 'win32' || process.platform === 'darwin';
 const norm = (p) => {
   const s = String(p || '').replace(/\\/g, '/').replace(/\/+$/, '');
@@ -30,13 +31,13 @@ const norm = (p) => {
 };
 const here = norm(cwd);
 
-// ไฟล์ที่ "ส่งสัญญาณ continue-me" ในโปรเจกต์ (per-project โดยธรรมชาติ — คงเดิม)
+// files that "signal continue-me" within a project (naturally per-project — unchanged)
 const signals = ['HANDOFF.md', 'docs/HANDOFF.md', '.claude/session-state.md'];
 const found = signals.map((p) => join(cwd, p)).filter(existsSync);
 
-// pointer per-project ที่ handoff-guard เขียนไว้: pointers/*.json = {"cwd": "...", "handoff": "..."}
-// match: exact · session อยู่ใต้ path ของ pointer · pointer อยู่ใน .claude/worktrees/ ของ session
-// (main repo ↔ worktree ถือเป็นโปรเจกต์เดียวกัน — แต่ไม่ยอม parent-folder match ทั่วไป)
+// per-project pointer written by handoff-guard: pointers/*.json = {"cwd": "...", "handoff": "..."}
+// match: exact · the session is under the pointer's path · the pointer is under the session's .claude/worktrees/
+// (main repo ↔ worktree count as the same project — but a generic parent-folder match is not allowed)
 const pointersDir = join(homedir(), '.claude', '.handoff-guard', 'pointers');
 let lastHandoff = '';
 let lastPointer = '';
@@ -47,30 +48,31 @@ try {
     const fp = join(pointersDir, f);
     try {
       const st = statSync(fp);
-      if (Date.now() - st.mtimeMs > MAX_AGE_DAYS * 864e5) continue; // งานเก่าเกิน — ข้าม
-      // strip BOM — pointer ที่เผลอเขียนด้วย PowerShell -Encoding utf8 จะมี U+FEFF นำหน้า → JSON.parse throw แบบเงียบ
+      if (Date.now() - st.mtimeMs > MAX_AGE_DAYS * 864e5) continue; // too old — skip
+      // strip BOM — a pointer accidentally written via PowerShell -Encoding utf8 gets a leading U+FEFF → JSON.parse throws silently
       const { cwd: pc, handoff } = JSON.parse(readFileSync(fp, 'utf8').replace(/^\uFEFF/, ''));
       const pcn = norm(pc);
       if (!pcn || !handoff) continue;
-      // ทิศ session-ลึกกว่า (here ใต้ pcn) ยอมทั่วไป: เปิดที่ subdir/worktree ของโปรเจกต์ pointer = เรื่องเดียวกัน
-      // ทิศ pointer-ลึกกว่า จำกัดเฉพาะ worktree ใต้ .claude/worktrees/ ของ here เท่านั้น —
-      // ถ้ายอม prefix ทั่วไป การเปิด session ที่โฟลเดอร์แม่ (เช่น ~/projects) จะ match pointer
-      // ของทุกโปรเจกต์ข้างใต้แล้วเด้ง handoff ที่ไม่เกี่ยวขึ้นมา
+      // session-deeper direction (here under pcn) is allowed generically: opening a subdir/worktree of the
+      // pointer's project = the same thing. pointer-deeper direction is restricted to only a worktree under
+      // here's .claude/worktrees/ — allowing a generic prefix match here would mean opening a session at a
+      // parent folder (e.g. ~/projects) matches every project's pointer underneath and surfaces unrelated handoffs
       const sameProject = here === pcn
         || here.startsWith(pcn + '/')
         || pcn.startsWith(here + '/.claude/worktrees/');
       if (!sameProject) continue;
-      if (!existsSync(handoff)) continue; // doc ปลายทางหายแล้ว — ข้าม
+      if (!existsSync(handoff)) continue; // target doc is gone — skip
       candidates.push({ handoff, mtime: st.mtimeMs, exact: here === pcn, fp });
-    } catch { /* pointer เสีย — ข้าม */ }
+    } catch { /* corrupt pointer — skip */ }
   }
-  // exact cwd match มาก่อน — main/แต่ละ worktree มี pointer ของตัวเอง = ไม่หยิบของ worktree อื่น
-  // ที่บังเอิญเขียนทับช่องเดิม · ถ้าไม่มี exact ค่อย fallback prefix-match ที่ใหม่สุด (main↔worktree)
+  // exact cwd match comes first — main and each worktree have their own pointer = never picks up another
+  // worktree's pointer that happened to write to the same slot · if there's no exact match, fall back to
+  // the newest prefix match (main↔worktree)
   candidates.sort((a, b) => (Number(b.exact) - Number(a.exact)) || (b.mtime - a.mtime));
   if (candidates.length) { lastHandoff = candidates[0].handoff; lastPointer = candidates[0].fp; }
-} catch { /* ยังไม่มี pointers dir — เงียบ */ }
+} catch { /* no pointers dir yet — silent */ }
 
-// สรุป handoff สั้นๆ สำหรับโชว์ผู้ใช้ทันที (systemMessage) — title + สถานะ + งานถัดไปข้อแรก
+// short handoff summary shown to the user immediately (systemMessage) — title + status + first pending item
 function summarizeHandoff(path) {
   try {
     const lines = readFileSync(path, 'utf8').replace(/^\uFEFF/, '').split(/\r?\n/);
@@ -78,8 +80,8 @@ function summarizeHandoff(path) {
     const title = (lines.find((l) => l.startsWith('# ')) || '').replace(/^#\s*(Handoff\s*[—-]\s*)?/i, '').trim();
     const status = (lines.find((l) => /^##\s*(สถานะ|Status)/i.test(l)) || '').replace(/^##\s*/, '').trim();
     const i = lines.findIndex((l) => /^##\s*(งานที่รอ|งานถัดไป|Next)/i.test(l));
-    // หา bullet เฉพาะใน section นี้ (หยุดที่ heading ถัดไป) — ไม่งั้น section ว่างจะไปหยิบ bullet
-    // ของ section อื่น (เช่น Gotchas) มาโชว์เป็น "งานถัดไป" ผิดๆ
+    // only look for a bullet within this section (stop at the next heading) — otherwise an empty section
+    // would grab a bullet from a different section (e.g. Gotchas) and wrongly show it as "next"
     let next = '';
     if (i >= 0) {
       const rest = lines.slice(i + 1);
@@ -87,32 +89,33 @@ function summarizeHandoff(path) {
       const sect = end >= 0 ? rest.slice(0, end) : rest;
       next = (sect.find((l) => l.trim().startsWith('- ')) || '').trim().replace(/^-\s*/, '');
     }
-    return [title, status, next && `ถัดไป: ${next}`].filter(Boolean).map(clip).join('\n');
+    return [title, status, next && `Next: ${next}`].filter(Boolean).map(clip).join('\n');
   } catch { return ''; }
 }
 
 const parts = [];
-if (found.length) parts.push(`ไฟล์ handoff ในโปรเจกต์: ${found.join(', ')}`);
-if (lastHandoff) parts.push(`handoff ล่าสุด: ${lastHandoff}`);
+if (found.length) parts.push(`Handoff files in this project: ${found.join(', ')}`);
+if (lastHandoff) parts.push(`Latest handoff: ${lastHandoff}`);
 
 let out = { hookSpecificOutput: { hookEventName: 'SessionStart' } };
 if (parts.length) {
-  // compact/resume = บทสนทนาเดิมยังอยู่ (กลางงาน) → แค่อ้างอิงเบาๆ ไม่สั่ง resume ซ้อนให้เด้ง
-  // startup/clear = context สด → สั่ง Claude อ่าน+ประกาศ handoff เองให้ผู้ใช้เห็นว่า resume แล้ว
+  // compact/resume = the existing conversation is still around (mid-task) → just a light reference, don't
+  // trigger a redundant resume announcement
+  // startup/clear = fresh context → tell Claude to read + announce the handoff itself so the user sees it resumed
   const midTask = ['compact', 'resume'].includes(input.source || '');
   const consumeHint = lastPointer
-    ? ` เมื่องานใน handoff นี้เสร็จ หรือผู้ใช้ไม่ต่องานนี้แล้ว → ลบไฟล์ pointer กันเด้งซ้ำ: ${lastPointer}.`
+    ? ` Once the work in this handoff is done, or the user isn't continuing it → delete the pointer file to prevent it popping up again: ${lastPointer}.`
     : '';
   out.hookSpecificOutput.additionalContext = midTask
-    ? `📂 (อ้างอิง) handoff ของโปรเจกต์นี้: ${parts.join(' · ')}`
-    : `📂 พบงานค้างของโปรเจกต์นี้ (จาก handoff-guard). ก่อนตอบข้อความแรกของผู้ใช้ ให้เปิดอ่าน handoff ด้านล่างด้วย Read ` +
-      `แล้วบอกผู้ใช้สั้นๆ 2-3 บรรทัด (ค้างอะไร / อยู่ branch·worktree ไหน / งานถัดไป) เพื่อยืนยันว่า resume แล้ว ` +
-      `ก่อนทำงานต่อ — ยกเว้นผู้ใช้เริ่มงานใหม่ที่ไม่เกี่ยวกับ handoff นี้ชัดเจน.${consumeHint} ${parts.join(' · ')}`;
+    ? `📂 (reference) Handoff for this project: ${parts.join(' · ')}`
+    : `📂 Found pending work for this project (from handoff-guard). Before replying to the user's first message, Read the handoff below ` +
+      `and give the user a short 2-3 line summary (what's pending / which branch·worktree / next step) to confirm it resumed ` +
+      `before continuing — unless the user is clearly starting new work unrelated to this handoff.${consumeHint} ${parts.join(' · ')}`;
   if (!midTask && lastHandoff) {
-    // โชว์สรุปให้ผู้ใช้เห็นทันทีตอน session เริ่ม (documented field — terminal CLI render;
-    // แอป/extension ยังไม่ render ณ 2026-07: github.com/anthropics/claude-code/issues/15344)
+    // show the summary to the user right when the session starts (documented field — renders on the terminal CLI;
+    // the app/IDE extension don't render it yet as of 2026-07: github.com/anthropics/claude-code/issues/15344)
     const sum = summarizeHandoff(lastHandoff);
-    if (sum) out.systemMessage = `📂 งานค้างจาก handoff:\n${sum}`;
+    if (sum) out.systemMessage = `📂 Pending work from handoff:\n${sum}`;
   }
 }
 process.stdout.write(JSON.stringify(out));

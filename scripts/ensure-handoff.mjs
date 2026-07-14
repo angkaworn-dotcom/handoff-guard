@@ -74,7 +74,7 @@ function diffText(oldTxt, newTxt) {
     } catch (e) {
       // git diff --no-index exit 1 เมื่อไฟล์ต่าง = เคสปกติ · ไม่มี git → stdout ว่าง
       const out = (e.stdout || '').toString();
-      return out || `(แสดง diff ไม่ได้ — ไม่มี git) ขนาดเดิม ${oldTxt.length} → ใหม่ ${newTxt.length} ตัวอักษร`;
+      return out || `(can't show diff — no git) old size ${oldTxt.length} → new ${newTxt.length} chars`;
     }
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -89,15 +89,15 @@ export async function updateHandoff({ write } = { write: false }) {
   const current = existsSync(targetSkill) ? readFileSync(targetSkill, 'utf8') : null;
 
   if (current !== null && normEol(current) === normEol(latest)) {
-    return { changed: false, diff: '', message: 'handoff: ตรงกับ upstream ล่าสุดอยู่แล้ว ✅' };
+    return { changed: false, diff: '', message: 'handoff: already matches the latest upstream ✅' };
   }
   const diff = diffText(current ?? '', latest);
   if (!write) {
     return {
       changed: true, diff,
       message: current === null
-        ? 'handoff: ยังไม่ได้ติดตั้ง — upstream ล่าสุดอยู่ด้านบน · ติดตั้ง: รันโดยไม่ใส่ flag (vendored) หรือ --update (upstream)'
-        : 'handoff: upstream มีเวอร์ชันใหม่ (diff ด้านบน) · รับมา: --update',
+        ? 'handoff: not installed yet — latest upstream shown above · install: run without a flag (vendored) or --update (upstream)'
+        : 'handoff: upstream has a newer version (diff above) · to take it: --update',
     };
   }
   mkdirSync(target, { recursive: true });
@@ -105,19 +105,19 @@ export async function updateHandoff({ write } = { write: false }) {
   writeAtomic(targetSkill, latest);
   return {
     changed: true, diff,
-    message: 'handoff: อัปเดตเป็น upstream ล่าสุดแล้ว ✅'
-      + (current !== null ? ' · ตัวเก่าสำรองไว้ที่ SKILL.md.bak' : '')
-      + ' · restart session เพื่อโหลดตัวใหม่',
+    message: 'handoff: updated to the latest upstream ✅'
+      + (current !== null ? ' · old copy backed up to SKILL.md.bak' : '')
+      + ' · restart session to load the new one',
   };
 }
 
 function fromVendored(targetSkill) {
   const here = dirname(fileURLToPath(import.meta.url));
   const v = join(here, '..', 'vendor', 'handoff', 'SKILL.md');
-  if (!existsSync(v)) throw new Error('ไม่พบ vendored ที่ ' + v);
+  if (!existsSync(v)) throw new Error('vendored copy not found at ' + v);
   // sanity check เหมือนฝั่ง upstream — vendored พัง/โดนสลับไฟล์ ต้อง fail ดัง ไม่ติดตั้งขยะเข้า context
   const txt = readFileSync(v, 'utf8');
-  if (!NAME_RE.test(txt)) throw new Error('vendored เนื้อหาไม่ใช่ skill handoff (' + v + ')');
+  if (!NAME_RE.test(txt)) throw new Error('vendored content is not the handoff skill (' + v + ')');
   writeAtomic(targetSkill, txt);
 }
 
@@ -136,7 +136,7 @@ export async function ensureHandoff() {
     return {
       installed: true,
       source: 'vendored',
-      message: 'handoff: ติดตั้งจากสำเนา vendored (© Matt Pocock) → ' + target + ' · restart session เพื่อโหลด',
+      message: 'handoff: installed from vendored copy (© Matt Pocock) → ' + target + ' · restart session to load',
     };
   } catch (e) {
     try {
@@ -144,10 +144,10 @@ export async function ensureHandoff() {
       return {
         installed: true,
         source: 'upstream',
-        message: 'handoff: vendored ไม่ได้ (' + e.message + ') → ดึงจาก upstream (mattpocock/skills) → ' + target + ' · restart session',
+        message: 'handoff: vendored failed (' + e.message + ') → fetched from upstream (mattpocock/skills) → ' + target + ' · restart session',
       };
     } catch (e2) {
-      return { installed: false, source: null, message: 'handoff: ติดตั้งไม่สำเร็จ — ' + e2.message };
+      return { installed: false, source: null, message: 'handoff: install failed — ' + e2.message };
     }
   }
 }
@@ -162,7 +162,7 @@ if (isMainModule(import.meta.url)) {
       if (r.diff) console.log(r.diff);
       console.log(r.message);
     } catch (e) {
-      console.error('handoff: เช็ค/อัปเดต upstream ไม่สำเร็จ — ' + e.message);
+      console.error('handoff: check/update against upstream failed — ' + e.message);
       process.exit(1);
     }
   } else {

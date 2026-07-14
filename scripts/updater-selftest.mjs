@@ -52,7 +52,7 @@ const FIXTURE_TEXT = {
   'vendor/handoff/SKILL.md': '---\nname: handoff\n---\n\nvendored handoff fixture (© Matt Pocock)\n',
   'commands/handoff-guard-max.md': '# /handoff-guard-max fixture\n',
   'commands/handoff-guard-update.md': '# /handoff-guard-update fixture\n',
-  'commands/handoff-guard-max.en.md': '# EN copy — ต้องถูก filter ออกจาก installMap\n',
+  'commands/handoff-guard-max.th.md': '# TH copy — ต้องถูก filter ออกจาก installMap\n',
 };
 // upstream ของ skill handoff (mock ตอบ ensure-handoff --check/--update) — ต้องมี `name: handoff`
 const HANDOFF_UPSTREAM = '---\nname: handoff\ndescription: mock upstream\n---\n\nmock upstream body\n';
@@ -196,7 +196,7 @@ try {
     // idempotent — รันซ้ำไม่ error, ไม่เพิ่ม hook ซ้ำ
     const rA2 = runNode(REAL_INSTALL, [], { home: homeA, extraEnv: offlineEnv });
     check('A rerun exit 0 (idempotent)', rA2.status === 0);
-    check('A rerun ไม่เพิ่ม hook ซ้ำ (settings ครบแล้ว)', /ครบแล้ว/.test(rA2.out));
+    check('A rerun ไม่เพิ่ม hook ซ้ำ (settings ครบแล้ว)', /already complete/.test(rA2.out));
     check('A rerun handoff already installed', /already installed/.test(rA2.out));
     // settings หาย/JSON พัง = install regression → ต้องนับเป็น FAIL ไม่ใช่ crash ทั้ง suite
     let hooksArr = [];
@@ -212,8 +212,8 @@ try {
   seedInstalled(homeB, fx.dir);   // ทุกไฟล์ CRLF, เนื้อตรงกับ fixture
   const rB = runNode(REAL_UPDATE, ['--check'], { home: homeB, extraEnv: netEnv });
   check('B exit 0 (tar extract บน C:\\ tmp สำเร็จ — #6)', rB.status === 0);
-  check('B รายงาน "ตรงกับ repo ล่าสุดอยู่แล้ว" (CRLF≡LF — #7)', /ตรงกับ repo ล่าสุดอยู่แล้ว/.test(rB.out));
-  check('B ไม่ false-positive ว่ามีไฟล์เปลี่ยน', !/มีไฟล์ใหม่\/เปลี่ยน/.test(rB.out));
+  check('B รายงาน "already matches the latest repo" (CRLF≡LF — #7)', /already matches the latest repo/.test(rB.out));
+  check('B ไม่ false-positive ว่ามีไฟล์เปลี่ยน', !/new\/changed/.test(rB.out));
 
   // ── C. update --check: ไฟล์หนึ่งต่างเนื้อจริง → detect "เปลี่ยน" ──────────────────
   console.log('\n[C] update --check · เนื้อต่างจริง 1 ไฟล์ → detect เปลี่ยน (#3)');
@@ -221,9 +221,9 @@ try {
   seedInstalled(homeC, fx.dir, { mutateRel: join('handoff-guard', 'SETUP.md') });
   const rC = runNode(REAL_UPDATE, ['--check'], { home: homeC, extraEnv: netEnv });
   check('C exit 0', rC.status === 0);
-  check('C รายงาน "มีไฟล์ใหม่/เปลี่ยน"', /มีไฟล์ใหม่\/เปลี่ยน/.test(rC.out));
+  check('C รายงาน "new/changed"', /new\/changed/.test(rC.out));
   check('C ระบุ SETUP.md เป็นไฟล์ที่เปลี่ยน', /·\s*SETUP\.md/.test(rC.out));
-  check('C --check รายงานว่ายังไม่เขียน', /ยังไม่เขียน/.test(rC.out));
+  check('C --check รายงานว่ายังไม่เขียน', /nothing written yet/.test(rC.out));
   // อ่านไฟล์กลับจริง — กัน regression ที่พิมพ์ข้อความ --check ถูกแต่แอบรัน installer ทับ
   const seededC = join(homeC, '.claude', 'skills', 'handoff-guard', 'SETUP.md');
   check('C --check ไฟล์ที่ seed ไว้ยังคงเดิม (อ่านกลับ)',
@@ -235,7 +235,7 @@ try {
   const rD = runNode(REAL_UPDATE, [], { home: homeD, extraEnv: netEnv });
   const skillD = join(homeD, '.claude', 'skills', 'handoff-guard');
   check('D exit 0', rD.status === 0);
-  check('D รายงานมีไฟล์ใหม่ (บ้านว่าง)', /มีไฟล์ใหม่\/เปลี่ยน/.test(rD.out));
+  check('D รายงานมีไฟล์ใหม่ (บ้านว่าง)', /new\/changed/.test(rD.out));
   check('D installer รันแล้ว: skill ถูกติดตั้ง', existsSync(join(skillD, 'SKILL.md')));
   check('D hook ถูกติดตั้งจาก update', existsSync(join(homeD, '.claude', 'hooks', 'context-guard.mjs')));
   check('D skill handoff ถูกติดตั้ง (จาก mock upstream/vendored)', existsSync(join(homeD, '.claude', 'skills', 'handoff', 'SKILL.md')));
@@ -250,7 +250,7 @@ try {
   writeFileSync(hSkill, '---\nname: handoff\n---\n\nOLD installed body\n');
   const rE = runNode(REAL_ENSURE, ['--check'], { home: homeE, extraEnv: netEnv });
   check('E exit 0', rE.status === 0);
-  check('E รายงาน upstream มีเวอร์ชันใหม่', /upstream มีเวอร์ชันใหม่/.test(rE.out));
+  check('E รายงาน upstream มีเวอร์ชันใหม่', /upstream has a newer version/.test(rE.out));
   check('E --check ไม่เขียนทับไฟล์เดิม', /OLD installed body/.test(readFileSync(hSkill, 'utf8')));
 
   // ── F. ensure-handoff --check: installed=CRLF ≡ upstream=LF → ไม่ false-positive (#7 ฝั่ง handoff) ──
@@ -261,12 +261,12 @@ try {
   writeFileSync(hSkillF, toCRLF(HANDOFF_UPSTREAM));   // เนื้อเดียวกับ mock upstream แต่เป็น CRLF
   const rF = runNode(REAL_ENSURE, ['--check'], { home: homeF, extraEnv: netEnv });
   check('F exit 0', rF.status === 0);
-  check('F รายงาน "ตรงกับ upstream ล่าสุดอยู่แล้ว" (CRLF≡LF)', /ตรงกับ upstream ล่าสุดอยู่แล้ว/.test(rF.out));
-  check('F ไม่ false-positive ว่ามีเวอร์ชันใหม่', !/upstream มีเวอร์ชันใหม่/.test(rF.out));
+  check('F รายงาน "already matches the latest upstream" (CRLF≡LF)', /already matches the latest upstream/.test(rF.out));
+  check('F ไม่ false-positive ว่ามีเวอร์ชันใหม่', !/upstream has a newer version/.test(rF.out));
 
   // ── G. cross-check installMap เทียบ "ชุดขั้นต่ำที่ hardcode ไว้" — independent จากโค้ด production ─
   // จงใจ hardcode รายการที่คาดหวังไว้ตรงนี้ (ไม่ derive จาก installMap เอง — ถ้า derive จะเป็น tautology
-  // ที่ผ่านเสมอ) · ถ้า installMap ในอนาคตเผลอตัดไฟล์สำคัญออก (เช่น hook หาย, filter .en.md หลุด)
+  // ที่ผ่านเสมอ) · ถ้า installMap ในอนาคตเผลอตัดไฟล์สำคัญออก (เช่น hook หาย, filter .th.md หลุด)
   // ชุดนี้จะจับได้ · รายการ align กับ FIXTURE_TEXT + scripts จริงที่ buildFixture วางไว้ (install/ensure-handoff/update)
   // ใช้ claudeD (บ้าน homeD จาก [D]) เป็น claudeRoot map เดียวกันทั้ง G+H — ไม่มี synthetic root แยก
   console.log('\n[G] cross-check installMap ⊇ ชุดขั้นต่ำที่ hardcode (independent — กัน tautology)');
@@ -295,21 +295,21 @@ try {
   const wrongDest = join(claudeD, 'skills', 'handoff-guard', 'hooks', 'context-guard.mjs');
   check('G (neg-ctrl) dest ผิดที่ใต้ skillDir ไม่ match แบบ full-equality',
     !destsG.some((d) => d === wrongDest) && wrongDest.replace(/\\/g, '/').endsWith('hooks/context-guard.mjs'));
-  // (5b-1) installMap ต้องไม่ map ไฟล์ .en.md เลย (filter ใน production)
-  check('G installMap ไม่มี dest ใดลงท้าย .en.md', !destsG.some((d) => d.replace(/\\/g, '/').endsWith('.en.md')));
+  // (5b-1) installMap ต้องไม่ map ไฟล์ .th.md เลย (filter ใน production)
+  check('G installMap ไม่มี dest ใดลงท้าย .th.md', !destsG.some((d) => d.replace(/\\/g, '/').endsWith('.th.md')));
 
-  // ── H. หลัง full update [D]: บ้านปลอมมีครบทุก pair จาก installMap + ไม่มี .en.md หลุดมา ──
+  // ── H. หลัง full update [D]: บ้านปลอมมีครบทุก pair จาก installMap + ไม่มี .th.md หลุดมา ──
   // มีความหมายจริงเพราะ install.mjs ตอนนี้ก็อปตาม installMap → dest ทุกตัวต้องโผล่ในบ้าน homeD
   // ใช้ mapG ก้อนเดียวกับ G (claudeRoot=claudeD) — ไม่เรียก installMap ซ้ำ
-  console.log('\n[H] หลัง [D] full update: ทุก dest ใน installMap ต้องมีจริงในบ้านปลอม + ไม่มี .en.md');
+  console.log('\n[H] หลัง [D] full update: ทุก dest ใน installMap ต้องมีจริงในบ้านปลอม + ไม่มี .th.md');
   let allPresent = true, missingFirst = '';
   for (const [, dest] of mapG) {
     if (!existsSync(dest)) { allPresent = false; if (!missingFirst) missingFirst = dest; }
   }
   check('H ทุก [src,dest] ใน installMap มีอยู่ในบ้านปลอมหลัง update' + (missingFirst ? ' (ขาด: ' + missingFirst + ')' : ''), allPresent);
-  // (5b-2) commands/handoff-guard-max.en.md ต้องไม่ถูกก็อปเข้าบ้าน (filter ทำงานตลอดสาย install)
-  check('H commands/handoff-guard-max.en.md ไม่มีในบ้านปลอม (filter .en.md)',
-    !existsSync(join(claudeD, 'commands', 'handoff-guard-max.en.md')));
+  // (5b-2) commands/handoff-guard-max.th.md ต้องไม่ถูกก็อปเข้าบ้าน (filter ทำงานตลอดสาย install)
+  check('H commands/handoff-guard-max.th.md ไม่มีในบ้านปลอม (filter .th.md)',
+    !existsSync(join(claudeD, 'commands', 'handoff-guard-max.th.md')));
 
   // ── I. installMap ordering: provider ก่อน importer ใน scripts/ (invariant กัน mixed-version window #1) ──
   // ถ้า copy loop ถูกขัดกลางคัน dir ที่ติดตั้งต้องไม่เหลือ new-importer + old-provider (importer พังทันที)
@@ -324,7 +324,7 @@ try {
   // ── J. real-repo drift guard: installMap เทียบ checkout จริง (ไม่ใช่ fixture) ──
   // fixture อาจ lag repo จริง — ข้อนี้จับ hook/command ที่เพิ่มใน repo จริงแต่ตกจาก installMap
   // (เช่น เพิ่ม hook ใหม่แต่ลืม walk / เพิ่ม command แต่ filter พลาด) · REPO_ROOT = parent ของ HERE (scripts/)
-  console.log('\n[J] real-repo drift: installMap ⊇ ทุก hook จริง + ทุก command .md (ไม่ใช่ .en.md)');
+  console.log('\n[J] real-repo drift: installMap ⊇ ทุก hook จริง + ทุก command .md (ไม่ใช่ .th.md)');
   const REPO_ROOT = join(HERE, '..');
   const repoLayoutJ = existsSync(join(REPO_ROOT, 'hooks')) && existsSync(join(REPO_ROOT, 'commands'));
   if (!repoLayoutJ) {
@@ -347,10 +347,10 @@ try {
       if (!srcsJ.includes(rel)) { hooksOk = false; if (!hookMiss) hookMiss = rel; }
     }
     check('J ทุก hook จริงใน repo อยู่ใน installMap' + (hookMiss ? ' (ขาด: ' + hookMiss + ')' : ''), hooksOk);
-    // ทุก command .md จริง (ไม่ใช่ .en.md) ต้องอยู่ใน map
+    // ทุก command .md จริง (ไม่ใช่ .th.md) ต้องอยู่ใน map
     let cmdsOk = true, cmdMiss = '';
     for (const f of readdirSync(join(REPO_ROOT, 'commands'))) {
-      if (f.endsWith('.md') && !f.endsWith('.en.md')) {
+      if (f.endsWith('.md') && !f.endsWith('.th.md')) {
         const rel = 'commands/' + f;
         if (!srcsJ.includes(rel)) { cmdsOk = false; if (!cmdMiss) cmdMiss = rel; }
       }
@@ -511,8 +511,8 @@ try {
   });
   check('M exit 1 (ส่วน handoff fail)', rM.status === 1);
   // เจาะจง banner สรุปท้ายของ update.mjs — 🎉 ของ install.mjs (ส่วน 1 ที่สำเร็จจริง) ไม่นับ
-  check('M ไม่มี banner "🎉 อัปเดตเสร็จ" ทั้งที่ fail', !rM.out.includes('🎉 อัปเดตเสร็จ'));
-  check('M รายงานว่าส่วน handoff ล้มเหลวชัดเจน', /handoff ล้มเหลว/.test(rM.out));
+  check('M ไม่มี banner "🎉 Update done" ทั้งที่ fail', !rM.out.includes('🎉 Update done'));
+  check('M รายงานว่าส่วน handoff ล้มเหลวชัดเจน', /skill handoff failed/.test(rM.out));
 
   // ── N. ensure-handoff — SKILL.md torn (ว่าง/เขียนค้าง) ต้อง self-heal ไม่ใช่ "already installed" ──
   console.log('\n[N] ensure-handoff · SKILL.md torn → reinstall จาก vendored (ไม่แตะเน็ต)');
@@ -680,7 +680,7 @@ try {
   // R6: ไม่มีไฟล์เลย → "ยังไม่มีข้อมูล" exit 0
   const homeR6 = mkdtempSync(join(ROOT, 'homeR6-'));
   const rR6 = runNode(REAL_STATS, ['summary'], { home: homeR6 });
-  check('R6 ไม่มีข้อมูล → exit 0 + "ยังไม่มีข้อมูล"', rR6.status === 0 && /ยังไม่มีข้อมูล/.test(rR6.out));
+  check('R6 ไม่มีข้อมูล → exit 0 + "No data yet"', rR6.status === 0 && /No data yet/.test(rR6.out));
 
   // R8: flag เปล่า/ค่าว่าง → null ไม่ใช่เลขปลอม (Number(true)=1, Number('')=0 เคยปนสถิติ
   //     แล้วผ่าน filter typeof==='number' ลาก p25/p75 ของ F4 เพี้ยนเงียบ)
@@ -742,8 +742,8 @@ try {
 
   // text mode
   const rS6 = runNode(REAL_SCAN, ['--project', projS], { home: homeS });
-  check('S6 text mode exit 0 + มี "รวม preload" + "%"',
-    rS6.status === 0 && /รวม preload/.test(rS6.out) && /%/.test(rS6.out));
+  check('S6 text mode exit 0 + มี "total preload" + "%"',
+    rS6.status === 0 && /total preload/.test(rS6.out) && /%/.test(rS6.out));
 
   // --max override
   const rS7 = runNode(REAL_SCAN, ['--project', projS, '--max', '100000', '--json'], { home: homeS });
@@ -776,13 +776,13 @@ try {
   check('S10 SKILL.md มี BOM → est เท่าไฟล์ไม่มี BOM (frontmatter ยัง match ไม่ fallback 400 char)',
     rS10.status === 0 && bomFiles.length === 2 && bomFiles[0].est === bomFiles[1].est);
 
-  // installMap ต้องรวม scan-preload.mjs + command scan (.md) แต่ไม่รวม .en.md
+  // installMap ต้องรวม scan-preload.mjs + command scan (.md) แต่ไม่รวม .th.md
   if (repoLayoutJ) {
     const srcsS = installMap(REPO_ROOT, join(ROOT, 'fakeS', '.claude')).map(([src]) => src.replace(/\\/g, '/'));
     check('S8 installMap รวม scripts/scan-preload.mjs + commands/handoff-guard-scan.md',
       srcsS.includes('scripts/scan-preload.mjs') && srcsS.includes('commands/handoff-guard-scan.md'));
-    check('S8 installMap ไม่รวม handoff-guard-scan.en.md',
-      !srcsS.includes('commands/handoff-guard-scan.en.md'));
+    check('S8 installMap ไม่รวม handoff-guard-scan.th.md',
+      !srcsS.includes('commands/handoff-guard-scan.th.md'));
   } else {
     console.log('  SKIP S8 — ไม่ได้อยู่ repo layout');
   }

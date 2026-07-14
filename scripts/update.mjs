@@ -83,7 +83,7 @@ export function installMap(repoDir, claudeRoot = claude) {
   const cd = join(repoDir, 'commands');
   if (existsSync(cd)) {
     for (const f of readdirSync(cd)) {
-      if (f.endsWith('.md') && !f.endsWith('.en.md')) map.push([join('commands', f), join(cDir, f)]);
+      if (f.endsWith('.md') && !f.endsWith('.th.md')) map.push([join('commands', f), join(cDir, f)]);
     }
   }
   return map;
@@ -119,26 +119,26 @@ try {
   // แบบนี้ทนทั้ง GNU tar และ bsdtar โดยไม่ต้องพึ่ง --force-local · Windows 10+/macOS/Linux มี tar ในตัว
   execFileSync('tar', ['-xzf', 'repo.tgz'], { cwd: tmp });
   const inner = readdirSync(tmp, { withFileTypes: true }).find((d) => d.isDirectory());
-  if (!inner) throw new Error('tarball ว่าง');
+  if (!inner) throw new Error('tarball is empty');
   const repoDir = join(tmp, inner.name);
   // sanity: ต้องเป็น repo handoff-guard จริง ก่อนเอา installer ของมันมารัน
   const skillHead = readFileSync(join(repoDir, 'SKILL.md'), 'utf8').slice(0, 400);
-  if (!/name:\s*handoff-guard/.test(skillHead)) throw new Error('เนื้อหา tarball ไม่ใช่ handoff-guard');
+  if (!/name:\s*handoff-guard/.test(skillHead)) throw new Error('tarball content is not handoff-guard');
 
   const changed = installMap(repoDir)
     .filter(([src, dest]) => !sameFile(join(repoDir, src), dest))
     .map(([src]) => src);
   if (!changed.length) {
-    console.log('handoff-guard: ตรงกับ repo ล่าสุดอยู่แล้ว ✅');
+    console.log('handoff-guard: already matches the latest repo ✅');
   } else {
-    console.log(`handoff-guard: มีไฟล์ใหม่/เปลี่ยน ${changed.length} ไฟล์:`);
+    console.log(`handoff-guard: ${changed.length} file(s) new/changed:`);
     for (const f of changed) console.log('  · ' + f);
     if (checkOnly) {
-      console.log('handoff-guard: (--check) ยังไม่เขียนอะไร · รับมา: รันโดยไม่ใส่ --check');
+      console.log('handoff-guard: (--check) nothing written yet · to apply: run without --check');
     } else {
       // รัน installer "ของเวอร์ชันใหม่" — copy ครบทุกส่วน + merge settings แบบ idempotent
       const r = spawnSync(process.execPath, [join(repoDir, 'scripts', 'install.mjs')], { stdio: 'inherit' });
-      if (r.status !== 0) throw new Error('installer ล้มเหลว (exit ' + r.status + ')');
+      if (r.status !== 0) throw new Error('installer failed (exit ' + r.status + ')');
     }
   }
 
@@ -159,12 +159,12 @@ try {
 
   // banner สรุปต้องดูผลจริงก่อน — model อ่าน stdout แล้วรายงานผู้ใช้ตามนั้น พิมพ์ 🎉 ทั้งที่ fail = รายงานผิด
   console.log(checkOnly
-    ? '\nเช็คเสร็จ — ยังไม่แตะไฟล์ใดๆ'
+    ? '\nCheck done — no files touched'
     : fail
-      ? '\n⚠️ อัปเดตส่วน handoff-guard เสร็จ แต่ skill handoff ล้มเหลว — ดู error ข้างบน'
-      : '\n🎉 อัปเดตเสร็จ — restart Claude Code session เพื่อโหลดของใหม่');
+      ? '\n⚠️ handoff-guard part updated, but skill handoff failed — see error above'
+      : '\n🎉 Update done — restart Claude Code session to load the new version');
 } catch (e) {
-  console.error('update: ไม่สำเร็จ — ' + e.message);
+  console.error('update: failed — ' + e.message);
   fail = true;
 } finally {
   rmSync(tmp, { recursive: true, force: true });

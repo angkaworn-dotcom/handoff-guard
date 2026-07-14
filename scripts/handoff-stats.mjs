@@ -88,7 +88,7 @@ const avg = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length :
 
 function cmdRecordHandoff(args) {
   const project = projectOf(args);
-  if (!project) { console.error('❌ record-handoff ต้องมี --project <mainRepoRoot>'); process.exit(1); }
+  if (!project) { console.error('❌ record-handoff requires --project <mainRepoRoot>'); process.exit(1); }
   let docBytes = null, docTokensEst = null, compressionRatio = null;
   if (typeof args.doc === 'string' && existsSync(args.doc)) {
     try {
@@ -107,15 +107,15 @@ function cmdRecordHandoff(args) {
     turns: num(args.turns), rate: num(args.rate),
     docBytes, docTokensEst, compressionRatio,
   });
-  console.log('✅ บันทึก handoff stats แล้ว');
+  console.log('✅ Handoff stats recorded');
 }
 
 function cmdRecordResume(args) {
   const project = projectOf(args);
-  if (!project) { console.error('❌ record-resume ต้องมี --project <mainRepoRoot>'); process.exit(1); }
+  if (!project) { console.error('❌ record-resume requires --project <mainRepoRoot>'); process.exit(1); }
   const verify = args.verify === 'pass' ? 'pass' : args.verify === 'fail' ? 'fail' : null;
   appendRecord({ v: 1, kind: 'resume', ts: new Date().toISOString(), project: slug(project), verify });
-  console.log('✅ บันทึก resume stats แล้ว');
+  console.log('✅ Resume stats recorded');
 }
 
 function cmdSummary(args) {
@@ -126,8 +126,8 @@ function cmdSummary(args) {
   const handoffs = records.filter((r) => r && r.kind === 'handoff');
   const resumes = records.filter((r) => r && r.kind === 'resume');
   if (!handoffs.length && !resumes.length) {
-    console.log(`📊 handoff-stats — ${scope ? 'project: ' + scope : 'ทุกโปรเจกต์'}`);
-    console.log('   ยังไม่มีข้อมูล');
+    console.log(`📊 handoff-stats — ${scope ? 'project: ' + scope : 'all projects'}`);
+    console.log('   No data yet');
     return;
   }
   const tokensArr = handoffs.map((r) => r.tokens).filter((n) => typeof n === 'number');
@@ -137,15 +137,15 @@ function cmdSummary(args) {
   const pass = resumes.filter((r) => r.verify === 'pass').length;
   const total = resumes.filter((r) => r.verify === 'pass' || r.verify === 'fail').length;
 
-  console.log(`📊 handoff-stats — ${scope ? 'project: ' + scope : 'ทุกโปรเจกต์'}`);
+  console.log(`📊 handoff-stats — ${scope ? 'project: ' + scope : 'all projects'}`);
   console.log(`   handoffs: ${handoffs.length}`);
   if (tokensArr.length) {
-    console.log(`   tokens ณ จุด handoff: avg ${Math.round(avg(tokensArr))} · median ${Math.round(median(tokensArr))}`);
+    console.log(`   tokens at handoff: avg ${Math.round(avg(tokensArr))} · median ${Math.round(median(tokensArr))}`);
   }
   console.log(`   compression ratio: avg ${ratioArr.length ? Math.round(avg(ratioArr) * 10) / 10 : '—'}`);
   if (turnsArr.length) console.log(`   turns/session: avg ${Math.round(avg(turnsArr))}`);
-  if (rateArr.length) console.log(`   rate: avg ${Math.round(avg(rateArr))}/เทิร์น`);
-  if (total) console.log(`   resume: ${pass}/${total} ผ่าน (${Math.round((pass / total) * 100)}%)`);
+  if (rateArr.length) console.log(`   rate: avg ${Math.round(avg(rateArr))}/turn`);
+  if (total) console.log(`   resume: ${pass}/${total} passed (${Math.round((pass / total) * 100)}%)`);
 }
 
 const cmd = process.argv[2];

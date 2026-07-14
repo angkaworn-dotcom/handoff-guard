@@ -39,7 +39,7 @@ const arg0 = (process.argv[2] || '').trim().toLowerCase();
 
 if (!arg0 || arg0 === 'reset' || arg0 === 'default') {
   if (existsSync(configPath)) unlinkSync(configPath);
-  console.log('✅ รีเซ็ตแล้ว — ลบ config, กลับไป auto-detect เพดานจากโมเดลต่อเทิร์น (fable/mythos 512k · opus 256k · sonnet/haiku 200k · [1m] 1M)');
+  console.log('✅ Reset — removed config, back to auto-detecting the ceiling from the model each turn (fable/mythos 512k · opus 256k · sonnet/haiku 200k · [1m] 1M)');
   process.exit(0);
 }
 
@@ -47,30 +47,30 @@ if (!arg0 || arg0 === 'reset' || arg0 === 'default') {
 if (arg0 === '0' || arg0 === 'off' || arg0 === 'disable') {
   mkdirSync(dir, { recursive: true });
   writeConfig({ ...readConfig(), max: 0 });
-  console.log('🔕 ปิด handoff-guard แล้ว (MAX=0) — จะไม่เตือน/ไม่ block จนกว่าจะตั้งค่าใหม่');
-  console.log(`   บันทึกที่ ${configPath} — มีผลเทิร์นถัดไป`);
-  console.log('   เปิดคืน: /handoff-guard-max reset (กลับไป auto) หรือ /handoff-guard-max <n> (ตั้งเพดานเอง)');
+  console.log('🔕 handoff-guard disabled (MAX=0) — no more warnings/blocks until you set a new value');
+  console.log(`   Saved to ${configPath} — takes effect next turn`);
+  console.log('   Turn back on: /handoff-guard-max reset (back to auto) or /handoff-guard-max <n> (set manually)');
   process.exit(0);
 }
 
 const max = Number(process.argv[2]);
-if (!Number.isFinite(max) || !Number.isInteger(max)) fail(`"${process.argv[2]}" ไม่ใช่จำนวนเต็ม — ใส่ token count เช่น 200000`);
-if (max < MIN_MAX || max > MAX_MAX) fail(`MAX ต้องอยู่ระหว่าง ${MIN_MAX} ถึง ${MAX_MAX} (ได้ ${max})`);
+if (!Number.isFinite(max) || !Number.isInteger(max)) fail(`"${process.argv[2]}" is not an integer — pass a token count like 200000`);
+if (max < MIN_MAX || max > MAX_MAX) fail(`MAX must be between ${MIN_MAX} and ${MAX_MAX} (got ${max})`);
 
 let t1 = process.argv[3] !== undefined ? Number(process.argv[3]) : Math.round(max * 0.72);
 let t2 = process.argv[4] !== undefined ? Number(process.argv[4]) : Math.round(max * 0.85);
 
-if (!Number.isFinite(t1) || !Number.isFinite(t2)) fail('t1/t2 ที่ใส่เองต้องเป็นตัวเลข');
-if (t1 <= 0 || t2 <= 0) fail('t1/t2 ต้องเป็นค่าบวก');
+if (!Number.isFinite(t1) || !Number.isFinite(t2)) fail('custom t1/t2 must be numbers');
+if (t1 <= 0 || t2 <= 0) fail('t1/t2 must be positive');
 // floor กันใส่เป็น % โดยเข้าใจผิด (เช่น `200000 72 85` → T2=85 token = block ทุก session ตั้งแต่เทิร์นแรก)
 const minT1 = Math.max(1000, Math.round(max * 0.01));
-if (t1 < minT1) fail(`tier1 (${t1}) ต่ำผิดปกติ — ขั้นต่ำ ${minT1} (1% ของ MAX) · ถ้าตั้งใจใส่เป็น % ให้ใส่เป็น token เช่น ${Math.round(max * 0.72)} ${Math.round(max * 0.85)}`);
-if (t1 >= t2) fail(`tier1 (${t1}) ต้องน้อยกว่า tier2 (${t2})`);
-if (t2 > max) fail(`tier2 (${t2}) ต้องไม่เกิน MAX (${max})`);
+if (t1 < minT1) fail(`tier1 (${t1}) is abnormally low — minimum ${minT1} (1% of MAX) · if you meant to enter a %, use token counts like ${Math.round(max * 0.72)} ${Math.round(max * 0.85)}`);
+if (t1 >= t2) fail(`tier1 (${t1}) must be less than tier2 (${t2})`);
+if (t2 > max) fail(`tier2 (${t2}) must not exceed MAX (${max})`);
 
 mkdirSync(dir, { recursive: true });
 writeConfig({ ...readConfig(), max, t1, t2 });
 
-console.log(`✅ ตั้งเพดานใหม่: MAX=${max}, tier1(เตือน)=${t1}, tier2(ด่วน)=${t2}`);
-console.log(`   บันทึกที่ ${configPath} — มีผลเทิร์นถัดไป · pin ทุกโมเดล (override auto-detect)`);
-console.log('   กลับไป auto-detect: node set-max.mjs reset (หรือ /handoff-guard-max reset)');
+console.log(`✅ New ceiling set: MAX=${max}, tier1(warn)=${t1}, tier2(urgent)=${t2}`);
+console.log(`   Saved to ${configPath} — takes effect next turn · pins every model (overrides auto-detect)`);
+console.log('   Back to auto-detect: node set-max.mjs reset (or /handoff-guard-max reset)');

@@ -1,30 +1,30 @@
 ---
-description: สแกนว่า context ตอนเปิด session ถูก preload ไปกับอะไรบ้าง (CLAUDE.md/skills/commands/settings ฯลฯ) — attribution ±30% ไม่ใช่การวัด
+description: Scan what the session's preloaded context is spent on (CLAUDE.md/skills/commands/settings, etc.) — attribution ±30%, not a measurement
 argument-hint: [--json]
 allowed-tools: ["Bash"]
 ---
 
 # /handoff-guard-scan
 
-> [English reference translation](handoff-guard-scan.en.md) (this file is the one Claude Code actually loads as the command)
+> [ภาษาไทย](handoff-guard-scan.th.md) — reference translation only; this file is the one Claude Code actually loads as the command.
 
-รันเครื่องมือ diagnostic one-shot ที่ประเมินว่า "context ก้อนที่ถูกโหลดตอนเปิด session (preload)" กระจายไปกับอะไร — CLAUDE.md ระดับ global/project, คำอธิบาย skill, commands, agents, settings/hooks, memory index
+Runs a one-shot diagnostic that estimates how the **preloaded** context (loaded when a session opens) is distributed — global/project CLAUDE.md, skill descriptions, commands, agents, settings/hooks, memory index.
 
-**นี่คือ attribution/breakdown (±30%) ไม่ใช่การวัด** — ของจริง hook วัดจาก `usage` ของ API อยู่แล้ว (ครอบ preload + dynamic + hidden ทั้งหมด) · เครื่องมือนี้แค่บอกสัดส่วนคร่าวๆ ว่าหมวดไหนกินเยอะ เพื่อให้ผู้ใช้ตัดสินใจว่าจะลด preload อะไรได้บ้าง
+**This is attribution/breakdown (±30%), not a measurement** — the hook already measures the real size from the API `usage` (covering preload + dynamic + hidden). This tool only gives a rough per-category share so the user can decide what preload to trim.
 
-## ขั้นตอน
+## Steps
 
-1. หา path จริงของสคริปต์ก่อน (`ls ~/.claude/skills/handoff-guard/scripts/scan-preload.mjs`) เผื่อ path ต่าง — ไม่เจอ → บอกผู้ใช้ตรงๆ ว่าไม่เจอ ให้เช็ค `~/.claude/skills/handoff-guard/scripts/` ห้ามสร้างสคริปต์ใหม่ทับ
-2. รันสคริปต์กับ project ปัจจุบัน (cwd):
+1. Resolve the real script path first (`ls ~/.claude/skills/handoff-guard/scripts/scan-preload.mjs`) in case it differs — if missing, tell the user plainly and point them at `~/.claude/skills/handoff-guard/scripts/`; never recreate the script.
+2. Run it against the current project (cwd):
    ```bash
    node ~/.claude/skills/handoff-guard/scripts/scan-preload.mjs --project "$(pwd)" $ARGUMENTS
    ```
-3. อ่าน stdout แล้วสรุปให้ผู้ใช้: หมวดไหนกิน token มากสุด (ยกตัวเลข/% ตรงจาก output ไม่ paraphrase) + ไฟล์ใหญ่สุด 2-3 อันดับแรก
-4. แนะนำได้แค่**เชิง attribution** เท่านั้น เช่น "CLAUDE.md global ~8k = 4% ของ MAX" — **ห้ามลบ/แก้ไฟล์ให้อัตโนมัติ** ผู้ใช้เป็นคนตัดสินว่าจะลดอะไร
+3. Read stdout and summarize for the user: which category costs the most tokens (quote the numbers/% straight from the output, don't paraphrase) + the top 2-3 largest files.
+4. Only advise at the **attribution** level, e.g. "global CLAUDE.md ~8k = 4% of MAX" — **never delete/edit files automatically**; the user decides what to trim.
 
-## หมายเหตุ
+## Notes
 
-- read-only ล้วน — สคริปต์ไม่แก้ไฟล์ใดๆ
-- เพดาน `MAX` ที่ใช้คิด % เอาจาก `~/.claude/.handoff-guard/config.json` (ถ้ามี pin ผ่าน `/handoff-guard-max`) หรือ default 200000 · override เฉพาะครั้งได้ด้วย `--max <n>`
-- `--json` ให้ output เป็น JSON (เผื่อ pipe ต่อ/parse เอง)
-- ไฟล์ > 1MB หรืออ่านไม่ได้ถูกข้ามและนับใน "skipped" — ไม่ทำให้สคริปต์ล้ม
+- Fully read-only — the script edits nothing.
+- The `MAX` used for the % comes from `~/.claude/.handoff-guard/config.json` (if pinned via `/handoff-guard-max`) or defaults to 200000 · override per-run with `--max <n>`.
+- `--json` emits JSON output (for piping/parsing).
+- Files > 1MB or unreadable are skipped and counted under "skipped" — they never crash the script.

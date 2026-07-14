@@ -167,14 +167,14 @@ if (args.json) {
   }, null, 2));
 } else {
   console.log(`📦 preload scan — project: ${project}`);
-  console.log(`   (attribution ±30% — ไม่ใช่การวัด · ของจริง hook วัดจาก usage อยู่แล้ว)\n`);
+  console.log(`   (attribution ±30% — not a measurement · the real hook measures usage directly)\n`);
   const rows = [...categories].sort((a, b) => b.estTokens - a.estTokens);
   for (const c of rows) {
-    console.log(`   ${c.label.padEnd(22)} ~${String(c.estTokens).padStart(6)} tok  ${pct(c.estTokens).padStart(5)}%  (${c.files} ไฟล์)`);
+    console.log(`   ${c.label.padEnd(22)} ~${String(c.estTokens).padStart(6)} tok  ${pct(c.estTokens).padStart(5)}%  (${c.files} files)`);
   }
-  console.log(`\n   รวม preload ≈ ${total} tok (~${pct(total)}% ของ MAX ${MAX})` + (skipped ? ` · ข้าม ${skipped} ไฟล์ (>1MB/อ่านไม่ได้)` : ''));
+  console.log(`\n   total preload ≈ ${total} tok (~${pct(total)}% of MAX ${MAX})` + (skipped ? ` · skipped ${skipped} files (>1MB/unreadable)` : ''));
   if (top.length) {
-    console.log('\n   ไฟล์ใหญ่สุด (top ' + top.length + '):');
+    console.log('\n   largest files (top ' + top.length + '):');
     for (const t of top) console.log(`   ~${String(t.est).padStart(6)} tok  ${t.path}`);
   }
 }

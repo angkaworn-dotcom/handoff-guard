@@ -1,38 +1,38 @@
 ---
-description: ตั้งเพดาน context (MAX) ของ handoff-guard เอง — คำนวณ tier1/tier2 ใหม่อัตโนมัติ, มีผลทันทีไม่ต้อง restart
+description: Set handoff-guard's own context ceiling (MAX) — recomputes tier1/tier2 automatically, takes effect immediately, no restart needed
 argument-hint: <max_tokens>|reset|0
 allowed-tools: ["Bash"]
 ---
 
 # /handoff-guard-max
 
-> [English reference translation](handoff-guard-max.en.md) (this file is the one Claude Code actually loads as the command)
+> [ภาษาไทย](handoff-guard-max.th.md) — reference translation only; this file is the one Claude Code actually loads as the command.
 
-ตั้งเพดาน context (`MAX`) ที่ handoff-guard ใช้เตือน/predict เอง แทนการแก้ env var มือใน `settings.json`
+Sets the context ceiling (`MAX`) that handoff-guard uses to warn/predict, instead of hand-editing an env var in `settings.json`.
 
 ## Argument
 
-`$ARGUMENTS` = จำนวน token สูงสุดของ context window **ตั้งตามการใช้งานจริง** เช่น:
+`$ARGUMENTS` = the maximum token count of the context window, **set it to match how you actually work**, e.g.:
 - `200000` — Sonnet/Haiku (200k)
 - `256000` — Opus (256k)
-- `512000` — Fable/Mythos (window ใหญ่ ตั้งสูงกันเตือนเร็วเกิน)
-- `1000000` — long-context beta / อยากดัน Fable ให้สุด spec (1M)
-- `0` — **ปิด handoff-guard** (ไม่เตือน/ไม่ block เลย จนกว่าจะตั้งใหม่)
-- `reset` หรือ `default` — ลบ config กลับไป auto-detect ตามโมเดล (แนะนำถ้าสลับหลายโมเดล)
+- `512000` — Fable/Mythos (large window, set high so it doesn't warn too early)
+- `1000000` — long-context beta / push Fable all the way to spec (1M)
+- `0` — **turn handoff-guard off** (never warns/blocks until you set it again)
+- `reset` or `default` — delete the config, revert to per-model auto-detect (recommended if you switch models a lot)
 
-## ขั้นตอน
+## Steps
 
-1. ถ้า `$ARGUMENTS` ว่าง → ถามผู้ใช้ด้วย AskUserQuestion ว่าอยากตั้งเท่าไหร่ (เสนอ 256000 / 512000 / 1000000 / reset / 0 เป็นตัวเลือก) ก่อนรันสคริปต์
-2. ถ้า `$ARGUMENTS` ไม่ใช่ตัวเลขและไม่ใช่ `reset`/`default`/`0`/`off`/`disable` → บอกผู้ใช้ว่าใส่ผิดรูปแบบ พร้อมตัวอย่างที่ถูก แล้วหยุด (อย่าเดาค่า)
-3. รันสคริปต์ตั้งค่า (หา path จริงก่อนด้วย `ls ~/.claude/skills/handoff-guard/scripts/set-max.mjs` เผื่อผู้ใช้ติดตั้งคนละ path):
+1. If `$ARGUMENTS` is empty → ask the user with AskUserQuestion what they want to set (offer 256000 / 512000 / 1000000 / reset / 0 as options) before running the script
+2. If `$ARGUMENTS` is not a number and not `reset`/`default`/`0`/`off`/`disable` → tell the user the format is wrong, show a correct example, and stop (don't guess a value)
+3. Run the setter script (first confirm the real path with `ls ~/.claude/skills/handoff-guard/scripts/set-max.mjs` in case the user installed it elsewhere):
    ```bash
    node ~/.claude/skills/handoff-guard/scripts/set-max.mjs $ARGUMENTS
    ```
-4. อ่าน stdout ของสคริปต์ (บอก MAX/tier1/tier2 ที่ตั้งใหม่ หรือ error ถ้าค่าไม่ถูกต้อง เช่น tier1 ≥ tier2, เกินขอบเขต) แล้วสรุปให้ผู้ใช้อ่านรู้เรื่อง — ไม่ต้อง paraphrase ตัวเลข ยกมาตรง ๆ
-5. ถ้าสคริปต์หา path ไม่เจอ (ยังไม่ได้ติดตั้ง handoff-guard หรือ path ต่างจากที่คาด) → บอกผู้ใช้ตรง ๆ ว่าไม่เจอไฟล์ที่ path ไหน และให้เช็ค `~/.claude/skills/handoff-guard/scripts/` หรือ path ที่ตั้งไว้ตอนติดตั้งจริง — ห้ามสร้างสคริปต์ใหม่ทับ
+4. Read the script's stdout (it reports the new MAX/tier1/tier2, or an error if the values are invalid — e.g. tier1 ≥ tier2, out of range) and summarize it for the user in plain terms — don't paraphrase the numbers, quote them directly
+5. If the script can't find the path (handoff-guard isn't installed yet, or the path differs from expected) → tell the user plainly which path wasn't found, and to check `~/.claude/skills/handoff-guard/scripts/` or wherever they actually installed it — do not create a new script to paper over it
 
-## หมายเหตุ
+## Notes
 
-- ตั้งค่าแล้วมีผล **เทิร์นถัดไปทันที** — hook (`context-guard.mjs`) อ่าน `~/.claude/.handoff-guard/config.json` สดทุกครั้งที่ทำงาน ไม่ต้อง restart session
-- ถ้าเคยตั้ง env var `HANDOFF_GUARD_MAX`/`HANDOFF_GUARD_THRESHOLD`/`HANDOFF_GUARD_THRESHOLD2` ไว้ใน `settings.json` — env var จะ**ชนะ**ค่าที่ตั้งผ่านคำสั่งนี้เสมอ (ไว้สำหรับ override ชั่วคราว/testing) ถ้าตั้งผ่าน `/handoff-guard-max` แล้วดูเหมือนไม่มีผล ให้เช็คว่ามี env var ค้างอยู่หรือไม่
-- tier1/tier2 คำนวณอัตโนมัติที่ 72%/85% ของ MAX เว้นแต่ระบุเองครบ 3 ค่า (`node set-max.mjs <max> <t1> <t2>`)
+- Once set, it takes effect **immediately on the next turn** — the hook (`context-guard.mjs`) reads `~/.claude/.handoff-guard/config.json` fresh every time it runs; no session restart needed
+- If env vars `HANDOFF_GUARD_MAX`/`HANDOFF_GUARD_THRESHOLD`/`HANDOFF_GUARD_THRESHOLD2` were ever set in `settings.json` — the env var **always wins** over what this command sets (it's meant for a temporary/testing override). If setting via `/handoff-guard-max` seems to have no effect, check whether a leftover env var is in the way
+- tier1/tier2 are auto-computed at 72%/85% of MAX unless all three values are specified explicitly (`node set-max.mjs <max> <t1> <t2>`)

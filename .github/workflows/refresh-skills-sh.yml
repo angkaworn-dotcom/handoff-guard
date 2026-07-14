@@ -1,0 +1,35 @@
+name: Refresh skills.sh listing
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - SKILL.md
+      - SKILL.en.md
+      - SETUP.md
+      - README.md
+      - hooks/**
+      - scripts/**
+  workflow_dispatch:
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Trigger skills.sh cache refresh via skills CLI
+        run: |
+          TMP_DIR="$(mktemp -d)"
+          cd "$TMP_DIR"
+          npx --yes skills add angkaworn-dotcom/handoff-guard --yes
+          cd -
+          rm -rf "$TMP_DIR"
+
+      - name: Print listing URL
+        run: echo "Listing refreshed — check https://www.skills.sh/angkaworn-dotcom/handoff-guard/handoff-guard"

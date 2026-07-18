@@ -130,7 +130,8 @@ const addCat = (key, label, est, files) => categories.push({ key, label, estToke
   let est = 0, n = 0;
   for (const d of dirs) {
     let files = [];
-    try { files = readdirSync(d).filter((f) => f.endsWith('.md') && !f.endsWith('.en.md')); } catch { /* ไม่มี dir */ }
+    // .th.md = สำเนาอ้างอิงภาษาไทย — installMap ไม่ติดตั้ง จึงไม่ถูก preload → ไม่นับ
+    try { files = readdirSync(d).filter((f) => f.endsWith('.md') && !f.endsWith('.th.md')); } catch { /* ไม่มี dir */ }
     for (const f of files) { est += estFile(join(d, f), frontmatter); n++; }
   }
   addCat('commands', 'commands', est, n);

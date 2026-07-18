@@ -723,6 +723,7 @@ try {
     '---\nname: sk1\ndescription: hello world description\n---\n\nbody body body\n', 'utf8');
   writeFileSync(join(claudeS, 'skills', 'big', 'SKILL.md'), 'a'.repeat(1024 * 1024 + 10), 'utf8'); // >1MB → skipped
   writeFileSync(join(claudeS, 'commands', 'c1.md'), '---\ndescription: a command\n---\n\nbody\n', 'utf8');
+  writeFileSync(join(claudeS, 'commands', 'c1.th.md'), '---\ndescription: thai reference copy\n---\n\nbody\n', 'utf8');
   writeFileSync(join(claudeS, 'settings.json'), '{}', 'utf8');
 
   const catBy = (json, key) => (json.categories || []).find((c) => c.key === key) || {};
@@ -739,6 +740,7 @@ try {
   check('S4 ไฟล์ >1MB ถูกข้าม (skipped ≥ 1)', jS.skipped >= 1);
   check('S5 skill-descriptions มาจาก frontmatter (est > 0, พบ 2 ไฟล์รวม big)',
     catBy(jS, 'skill-descriptions').estTokens > 0 && catBy(jS, 'skill-descriptions').files === 2);
+  check('S11 commands ไม่นับ .th.md (สำเนาอ้างอิง — ไม่ถูกติดตั้ง/preload)', catBy(jS, 'commands').files === 1);
 
   // text mode
   const rS6 = runNode(REAL_SCAN, ['--project', projS], { home: homeS });

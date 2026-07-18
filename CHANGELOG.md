@@ -2,6 +2,11 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **`scan-preload.mjs`: commands filter excluded the wrong reference files** — it still skipped `.en.md` (a leftover from before the v1.1.0 language flip); the reference copies that are not installed/preloaded are now `.th.md`, so the filter excludes those instead. Attribution-only impact (±30% heuristic), no behavior change elsewhere. New regression test S11.
+
 ## [1.1.1] - 2026-07-18
 
 Bugfix release.

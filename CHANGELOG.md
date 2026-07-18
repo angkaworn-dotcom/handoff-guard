@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## [1.1.1] - 2026-07-18
+
+Bugfix release.
+
+### Fixed
+- **Chip sequence numbers jumping (11 → 46 → 13)** — the chip number N is counted from files at handoff time, and the instruction left room for a loose `handoff-*.md` glob that matches every project's files in the shared handoffs folder (that's where 46 came from). `SKILL.md`/`SKILL.th.md` now pin the exact per-project glob `~/.claude/.handoff-guard/handoffs/handoff-<project name>-*.md`, define `<project name>` as the basename of mainRepoRoot (never the worktree folder name), forbid the bare `handoff-*.md` count, and add a sanity check when N jumps by more than a couple. (#27)
+
+### Added
+- **CI: skills.sh listing auto-refresh** — `.github/workflows/refresh-skills-sh.yml` runs `npx skills add` on every push to main that touches SKILL/SETUP/README (EN + TH), `hooks/`, or `scripts/` (plus manual dispatch), so the skills.sh listing stays in sync with main. (#26)
+- **CI: release automation** — `.github/workflows/release.yml` creates the GitHub Release automatically when a `v*` tag is pushed, with notes extracted from the matching CHANGELOG.md section.
+
 ## [1.1.0] - 2026-07-14
 
 Docs, hooks, and scripts now default to English. Thai versions are preserved as `*.th.md` reference files.

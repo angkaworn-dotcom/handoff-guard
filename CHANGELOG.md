@@ -2,14 +2,20 @@
 
 All notable changes to this project are documented in this file.
 
-## [Unreleased]
+## [1.1.2] - 2026-07-25
+
+Bugfix release — the kill switch now actually means off, and Opus 5 detection is pinned.
 
 ### Fixed
 - **`{max:0}` did not silence handoff suggestions** — the kill switch stopped the Stop hook (verified: it exits immediately, no output, even at 900k tokens), but it never bound the skill itself. `SKILL.md`'s trigger list included "context usage is high or rising fast", a path that never consults `config.json`, so Claude could still self-invoke and tell the user to hand off while the guard was supposedly off. `SKILL.md`/`SKILL.th.md` now make the disabled state an explicit stop: no self-invoking, no "context is getting full", no handoff of Claude's own accord, and read `config.json` before raising one that no hook asked for. An explicit `/handoff-guard` still works, and an existing handoff doc surfaced at SessionStart still resumes (recovery, not a warning).
 
+- **`scan-preload.mjs`: commands filter excluded the wrong reference files** — it still skipped `.en.md` (a leftover from before the v1.1.0 language flip); the reference copies that are not installed/preloaded are now `.th.md`, so the filter excludes those instead. Attribution-only impact (±30% heuristic), no behavior change elsewhere. New regression test S11. (#30)
+
 ### Changed
-- **Opus 5 support** — `claude-opus-5` resolves to the Opus 256k ceiling (it already matched the `/opus/` pattern; this pins the behavior with regression tests G so a future pattern refactor cannot silently drop it to the 200k fallback) and is now named explicitly in `SETUP.md`, `README.md`, and `/handoff-guard-max`. The 256k figure is an assumption inherited from earlier Opus generations, not a measured window — the hook comment and SETUP now document symptom-based tuning (auto-compact before tier1 → pin 200000 · sailing past 256k uncompacted → pin higher).
-- **`scan-preload.mjs`: commands filter excluded the wrong reference files** — it still skipped `.en.md` (a leftover from before the v1.1.0 language flip); the reference copies that are not installed/preloaded are now `.th.md`, so the filter excludes those instead. Attribution-only impact (±30% heuristic), no behavior change elsewhere. New regression test S11.
+- **Opus 5 support** — `claude-opus-5` resolves to the Opus 256k ceiling (it already matched the `/opus/` pattern; this pins the behavior with regression tests G so a future pattern refactor cannot silently drop it to the 200k fallback) and is now named explicitly in `SETUP.md`, `README.md`, and `/handoff-guard-max`. The 256k figure is an assumption inherited from earlier Opus generations, not a measured window — the hook comment and SETUP now document symptom-based tuning (auto-compact before tier1 → pin 200000 · sailing past 256k uncompacted → pin higher). (#31)
+
+### Testing
+Both suites green: `selftest.mjs` 69/69 (66 + 3 new Opus 5 ceiling checks), `updater-selftest.mjs` 120/120.
 
 ## [1.1.1] - 2026-07-18
 

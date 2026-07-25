@@ -32,6 +32,10 @@ try {
 
 // context ceiling per model — auto-detected per turn from message.model (the transcript records it + it can change mid-session)
 // "[1m]" (long-context 1M) > fable/mythos 512k > opus 256k > sonnet/haiku/unknown 200k
+// opus 5 (`claude-opus-5`) is covered by the same /opus/ branch → 256k · that number is an assumption
+// carried over from the earlier Opus generations, not a measured window · symptom-based tuning:
+//   auto-compact lands before any tier1 warning → the real window is smaller → `/handoff-guard-max 200000`
+//   context sails far past 256k with no compaction → the window is bigger → pin higher (or use the [1m] mode)
 // fable/mythos: the real window is very large (spec says 1M — observed in practice growing past 400k without auto-compact yet) →
 //   512k is set as a middle-ground buffer: high enough not to warn too early, but still leaves room in case CC compacts before 1M (to push all the way: pin 1000000)
 // (unknown = assume the smallest → the guard firing too soon beats not firing at all on a low-ceiling model)
@@ -47,7 +51,8 @@ const windowForModel = (m) => {
   }
   return /\[1m\]/.test(m) ? 1000000 :
     /fable|mythos/.test(m) ? 512000 :
-    /opus/.test(m) ? 256000 : 200000;
+    /opus/.test(m) ? 256000 :   // every Opus generation incl. opus 5 — see the note above before retuning
+    200000;
 };
 
 const K = Number(process.env.HANDOFF_GUARD_PREDICT_TURNS || 3);     // lead time (turns) for the predict trigger

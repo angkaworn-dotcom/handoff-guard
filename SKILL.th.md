@@ -1,6 +1,6 @@
 ---
 name: handoff-guard
-description: Context Manager (V2) — observe→predict→decide→recover. Decide whether to hand off to a fresh session when context is near (or predicted to reach) the token limit, and produce a clean handoff if so. Use when the context-guard Stop hook injects a near-limit OR predictive warning (tier=predict/tier1/tier2), when the user invokes /handoff-guard, or when context usage is high or rising fast relative to the current model's context window and you must decide whether to keep working or start a new session.
+description: Context Manager (V2) — observe→predict→decide→recover. Decide whether to hand off to a fresh session when context is near (or predicted to reach) the token limit, and produce a clean handoff if so. Use when the context-guard Stop hook injects a near-limit OR predictive warning (tier=predict/tier1/tier2), when the user invokes /handoff-guard, or when context usage is high or rising fast relative to the current model's context window and you must decide whether to keep working or start a new session. Never self-invoke while the guard is disabled (max 0 in ~/.claude/.handoff-guard/config.json, or HANDOFF_GUARD_MAX=0) — in that state only an explicit /handoff-guard from the user counts.
 ---
 
 # Context Manager (V2)
@@ -17,6 +17,7 @@ description: Context Manager (V2) — observe→predict→decide→recover. Deci
   - **tier1** — token จริง ≥ T1 (absolute safety net)
   - **tier2** — token จริง ≥ T2 (ด่วน)
 - ผู้ใช้พิมพ์ `/handoff-guard` เอง
+- **ปิด guard อยู่ (`/handoff-guard-max 0` → config `{max:0}` หรือ env `HANDOFF_GUARD_MAX=0`) → เงียบสนิท** Stop hook exit ทันทีไม่พูดอะไรในสถานะนี้ และ **skill นี้ห้ามทำหน้าที่แทน hook**: ห้าม self-invoke, ห้ามเตือนว่า "context ใกล้เต็ม", ห้ามเสนอ handoff ด้วยตัวเอง — ผู้ใช้สั่งปิด guard ไว้ คำเตือนที่ยังโผล่มาคือ guard ที่ยังทำงานอยู่ · เหลือทางเดียวที่ยังใช้ได้คือผู้ใช้พิมพ์ `/handoff-guard` เอง (สั่งมาตรงๆ = ทำให้) · **ก่อนจะเสนอ handoff ที่ไม่มี bracket `additionalContext` ของ hook สั่งมา ให้อ่าน `~/.claude/.handoff-guard/config.json` ก่อน: เจอ `"max": 0` = ไม่ต้องพูด** (handoff เก่าที่ SessionStart hook หยิบมาให้เป็นอีกเรื่อง — การสานงานที่มีอยู่แล้วต่อไม่ใช่คำเตือนใหม่ ยังทำได้ปกติ)
 
 ## ขั้นตอน (ทำตามลำดับ)
 

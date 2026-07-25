@@ -28,7 +28,7 @@ There are three warning levels:
 - ⚠️ **Nearly full** — reached 72% of the ceiling
 - 🔴 **Urgent** — reached 85% of the ceiling
 
-It figures out each model's ceiling on its own (Fable/Mythos 512k, Opus 256k, Sonnet/Haiku 200k, long-context `[1m]` mode 1M), and if a session gets compacted and then grows back toward full again, it will warn a second time.
+It figures out each model's ceiling on its own (Fable/Mythos 512k, Opus 256k — every generation including Opus 5, Sonnet/Haiku 200k, long-context `[1m]` mode 1M), and if a session gets compacted and then grows back toward full again, it will warn a second time.
 
 ## Requirements
 
@@ -97,7 +97,7 @@ Or use env vars (env always wins — good for a one-off/testing override):
 
 | env | default | meaning |
 |-----|---------|---------|
-| `HANDOFF_GUARD_MAX` | auto per model | context ceiling — Fable/Mythos 512k, Opus 256k, Sonnet/Haiku/unknown 200k, `[1m]` 1M · **`0` = turn guard off** |
+| `HANDOFF_GUARD_MAX` | auto per model | context ceiling — Fable/Mythos 512k, Opus (all generations, incl. Opus 5) 256k, Sonnet/Haiku/unknown 200k, `[1m]` 1M · **`0` = turn guard off** (hook silent + the skill stops volunteering a handoff; explicit `/handoff-guard` still works) |
 | `HANDOFF_GUARD_THRESHOLD` | 72% of the ceiling | the "nearly full" level |
 | `HANDOFF_GUARD_THRESHOLD2` | 85% of the ceiling | the "urgent" level |
 | `HANDOFF_GUARD_PREDICT_TURNS` | 3 | warn ahead when predicted to be full within ≤ this many turns |

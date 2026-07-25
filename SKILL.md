@@ -1,6 +1,6 @@
 ---
 name: handoff-guard
-description: Context Manager (V2) — observe→predict→decide→recover. Decide whether to hand off to a fresh session when context is near (or predicted to reach) the token limit, and produce a clean handoff if so. Use when the context-guard Stop hook injects a near-limit OR predictive warning (tier=predict/tier1/tier2), when the user invokes /handoff-guard, or when context usage is high or rising fast relative to the current model's context window and you must decide whether to keep working or start a new session.
+description: Context Manager (V2) — observe→predict→decide→recover. Decide whether to hand off to a fresh session when context is near (or predicted to reach) the token limit, and produce a clean handoff if so. Use when the context-guard Stop hook injects a near-limit OR predictive warning (tier=predict/tier1/tier2), when the user invokes /handoff-guard, or when context usage is high or rising fast relative to the current model's context window and you must decide whether to keep working or start a new session. Never self-invoke while the guard is disabled (max 0 in ~/.claude/.handoff-guard/config.json, or HANDOFF_GUARD_MAX=0) — in that state only an explicit /handoff-guard from the user counts.
 ---
 
 # Context Manager (V2)
@@ -17,6 +17,7 @@ Protects work from being lost when context is nearly full — the `context-guard
   - **tier1** — real tokens ≥ T1 (absolute safety net)
   - **tier2** — real tokens ≥ T2 (urgent)
 - The user types `/handoff-guard` themselves
+- **Disabled (`/handoff-guard-max 0` → config `{max:0}`, or env `HANDOFF_GUARD_MAX=0`) → stay silent.** The Stop hook exits without a word in this state, and **this skill must not step in for it**: don't self-invoke, don't raise "context is getting full", don't suggest a handoff of your own accord — the user asked for the guard to be off, and a warning that arrives anyway is the guard still running. Only an explicit `/handoff-guard` still works (they asked for it directly — honor it). **Before raising a handoff that no hook `additionalContext` bracket asked for, read `~/.claude/.handoff-guard/config.json`: `"max": 0` there means say nothing.** (An existing handoff doc surfaced by the SessionStart hook is separate — resuming work you already have is not a new warning, so it stays allowed.)
 
 ## Steps (follow in order)
 

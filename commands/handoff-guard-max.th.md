@@ -15,7 +15,7 @@
 
 `$ARGUMENTS` = จำนวน token สูงสุดของ context window **ตั้งตามการใช้งานจริง** เช่น:
 - `200000` — Sonnet/Haiku (200k)
-- `256000` — Opus (256k)
+- `256000` — Opus ทุกรุ่นรวม Opus 5 (256k)
 - `512000` — Fable/Mythos (window ใหญ่ ตั้งสูงกันเตือนเร็วเกิน)
 - `1000000` — long-context beta / อยากดัน Fable ให้สุด spec (1M)
 - `0` — **ปิด handoff-guard** (ไม่เตือน/ไม่ block เลย จนกว่าจะตั้งใหม่)

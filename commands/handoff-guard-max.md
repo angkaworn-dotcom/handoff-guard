@@ -14,10 +14,10 @@ Sets the context ceiling (`MAX`) that handoff-guard uses to warn/predict, instea
 
 `$ARGUMENTS` = the maximum token count of the context window, **set it to match how you actually work**, e.g.:
 - `200000` — Sonnet/Haiku (200k)
-- `256000` — Opus (256k)
+- `256000` — Opus, every generation incl. Opus 5 (256k)
 - `512000` — Fable/Mythos (large window, set high so it doesn't warn too early)
 - `1000000` — long-context beta / push Fable all the way to spec (1M)
-- `0` — **turn handoff-guard off** (never warns/blocks until you set it again)
+- `0` — **turn handoff-guard off** (never warns/blocks until you set it again — the hook goes silent *and* the skill stops volunteering a handoff on its own; an explicit `/handoff-guard` still works)
 - `reset` or `default` — delete the config, revert to per-model auto-detect (recommended if you switch models a lot)
 
 ## Steps

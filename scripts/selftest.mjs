@@ -147,6 +147,14 @@ check('G sonnet 171k → tier2 ด่วน (≥170000)', gS2 && gS2.decision ==
 check('G opus 183k → silent (< T1=184320)', silent(run('hg-op-a', 183000, 'claude-opus-4-8')));
 const gO = parse(run('hg-op-b', 185000, 'claude-opus-4-8').out);
 check('G opus 185k → tier1 block (≥184320)', gO && gO.decision === 'block' && /tier=tier1/.test(ctxOf(gO)));
+// Opus 5 ต้องได้เพดาน opus (256k) เหมือนรุ่นก่อน — ไม่หลุดไป fallback 200k (T1 จะกลายเป็น 144000 = เตือนเร็วเกิน)
+// regression: pattern /opus/ ครอบ `claude-opus-5` อยู่แล้ว · เทสต์นี้ pin ไว้กันการ refactor pattern ทำ opus 5 หลุดเงียบ
+check('G opus 5 183k → silent (เพดาน opus 256k, ยังไม่ถึง T1=184320)', silent(run('hg-op5-a', 183000, 'claude-opus-5')));
+const gO5 = parse(run('hg-op5-b', 185000, 'claude-opus-5').out);
+check('G opus 5 185k → tier1 block + bracket บอก max=256000 (ไม่ใช่ 200000)',
+  gO5 && gO5.decision === 'block' && /tier=tier1/.test(ctxOf(gO5)) && /max=256000/.test(ctxOf(gO5)));
+const gO5c = parse(run('hg-op5-c', 218000, 'claude-opus-5').out);
+check('G opus 5 218k → tier2 (≥T2=217600)', gO5c && gO5c.decision === 'block' && /tier=tier2/.test(ctxOf(gO5c)));
 // Fable 5 เพดาน 512k (window ใหญ่กว่า opus) → T1=round(512k·0.72)=368640: 368k เงียบ, 369k ยิง tier1
 check('G fable 368k → silent (< T1=368640)', silent(run('hg-fab-a', 368000, 'claude-fable-5')));
 const gF = parse(run('hg-fab-b', 369000, 'claude-fable-5').out);

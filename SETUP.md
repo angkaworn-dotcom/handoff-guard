@@ -71,12 +71,14 @@ The hook picks the MAX for each turn in this order, **stopping at the first one 
 
 1. **env** `HANDOFF_GUARD_MAX` — temporary/testing override (wins over everything)
 2. **config.json** (`fileConfig.max`) — pinned permanently via `/handoff-guard-max <n>` · **overrides auto-detect for every model**
-3. **auto-detect from the model** — reads `message.model` from the latest assistant message in the transcript → `[1m]` (long-context) 1M · `fable`/`mythos` 512k (a very large real window — spec says 1M; 512k is set as a buffer so the guard doesn't warn too early) · `opus` 256k · `sonnet`/`haiku`/unknown 200k (unknown = assume the smallest, better to warn too soon than not at all)
+3. **auto-detect from the model** — reads `message.model` from the latest assistant message in the transcript → `[1m]` (long-context) 1M · `fable`/`mythos` 512k (a very large real window — spec says 1M; 512k is set as a buffer so the guard doesn't warn too early) · `opus` 256k (**every Opus generation, `claude-opus-5` included** — 256k is an assumption inherited from the earlier Opus models, not a measured window: if auto-compact lands before any tier1 warning, the real window is smaller → `/handoff-guard-max 200000`; if context sails well past 256k without compacting, pin higher) · `sonnet`/`haiku`/unknown 200k (unknown = assume the smallest, better to warn too soon than not at all)
    > These patterns are tied to model-name formats that can change — if a new model isn't detected (falls back to 200k, warning too often), add your own mapping in `config.json`: `{"windows": {"<regex>": <tokens>}}`, checked before the built-ins, no code edit needed
 
 T1/T2 follow the same priority (env → config → `round(MAX×0.72)` / `round(MAX×0.85)`) **except**: if env `HANDOFF_GUARD_MAX` is set, any t1/t2 pinned in config.json are ignored (recomputed as % of the new env MAX — the file's t1/t2 were derived from the old max, and reusing them against a new MAX can drift so far that T1 > MAX = permanently silent) unless you also set env `HANDOFF_GUARD_THRESHOLD`/`THRESHOLD2` yourself, which always win · the model can change mid-session, and the ceiling adjusts automatically as long as it isn't pinned
 
 > **Switching between Opus/Sonnet often → don't pin** (let it auto-detect) · **Tuning auto-compact for one model → pin it with `/handoff-guard-max`** · **Want the guard fully off → `/handoff-guard-max 0`** (writes `{max:0}` → the hook exits immediately, no warnings · turn back on with `reset`)
+
+> **What `{max:0}` covers**: the Stop hook goes silent (no measuring, no warning, no blocking) **and the skill stops volunteering** — `SKILL.md` instructs Claude not to self-invoke or suggest a handoff while the guard is disabled, since the hook isn't the only path that can raise one. An explicit `/handoff-guard` still works (you asked for it), and the SessionStart hook still surfaces an *existing* handoff doc so a resumed session doesn't lose its thread — that's recovery, not a warning. If you want that quiet too, delete the pointer for the project (its path is in the injected message).
 
 ## Tune
 

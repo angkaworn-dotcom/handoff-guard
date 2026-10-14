@@ -2,6 +2,17 @@
 
 All notable changes to this project are documented in this file.
 
+## [Unreleased]
+
+### Fixed
+- **`selftest.mjs` reported 68 false FAILs in a fresh repo checkout** — it always targeted the *installed* hook (`~/.claude/hooks/context-guard.mjs`), so on a machine (or CI runner) without handoff-guard installed every hook call failed. It now tests the repo's own `hooks/context-guard.mjs` when run from a checkout, falls back to the installed hook otherwise (the installed copy has no `hooks/`), prints which hook it is testing, and exits with a clear error if none is found. `HANDOFF_GUARD_HOOK` still overrides.
+
+### Added
+- **CI: test workflow** — `.github/workflows/test.yml` runs both self-test suites on every PR and push to main (Ubuntu + Windows).
+
+### Changed
+- `refresh-skills-sh.yml` path filter: dropped the stale `SKILL.en.md` (gone since v1.1.0) and added `commands/**`.
+
 ## [1.1.2] - 2026-07-25
 
 Bugfix release — the kill switch now actually means off, and Opus 5 detection is pinned.

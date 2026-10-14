@@ -6,12 +6,12 @@ on:
       - main
     paths:
       - SKILL.md
-      - SKILL.en.md
       - SKILL.th.md
       - SETUP.md
       - SETUP.th.md
       - README.md
       - README.th.md
+      - commands/**
       - hooks/**
       - scripts/**
   workflow_dispatch:

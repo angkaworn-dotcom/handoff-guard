@@ -5,9 +5,18 @@
 import { spawnSync } from 'node:child_process';
 import { writeFileSync, readFileSync, mkdtempSync, mkdirSync, rmSync, existsSync, utimesSync } from 'node:fs';
 import { tmpdir, homedir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const HOOK = process.env.HANDOFF_GUARD_HOOK || join(homedir(), '.claude', 'hooks', 'context-guard.mjs');
+// รันจาก repo checkout → เทสต์ hook ใน repo (../hooks มีเฉพาะใน checkout · สำเนาที่ติดตั้งไม่มี hooks/) · ไม่งั้นเทสต์ตัวที่ติดตั้งแล้ว
+const repoHook = join(dirname(fileURLToPath(import.meta.url)), '..', 'hooks', 'context-guard.mjs');
+const HOOK = process.env.HANDOFF_GUARD_HOOK
+  || (existsSync(repoHook) ? repoHook : join(homedir(), '.claude', 'hooks', 'context-guard.mjs'));
+if (!existsSync(HOOK)) {
+  console.error(`hook not found: ${HOOK}\ninstall handoff-guard first, run from a repo checkout, or set HANDOFF_GUARD_HOOK=<path to context-guard.mjs>`);
+  process.exit(1);
+}
+console.log(`hook under test: ${HOOK}`);
 const tmp = mkdtempSync(join(tmpdir(), 'hg-'));
 
 // hermetic: ชี้ home ปลอมให้ hook (กัน config.json / marker จริงของเครื่อง mask ผลเทสต์)

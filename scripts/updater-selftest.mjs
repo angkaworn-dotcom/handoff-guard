@@ -16,10 +16,10 @@
 import { Worker } from 'node:worker_threads';
 import { spawnSync, execFileSync } from 'node:child_process';
 import {
-  mkdtempSync, mkdirSync, writeFileSync, appendFileSync, readFileSync, existsSync, rmSync, readdirSync,
+  mkdtempSync, mkdirSync, writeFileSync, appendFileSync, readFileSync, existsSync, rmSync, readdirSync, realpathSync,
 } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, dirname } from 'node:path';
+import { join, dirname, basename } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { installMap } from './update.mjs';   // mapping ตัวจริง — ตัวเดียวกับที่ production ใช้เทียบไฟล์
 
@@ -409,8 +409,16 @@ try {
   writeFileSync(join(leftoverK, 'junk.txt'), 'ของใครไม่รู้\n');
 
   const survivorsK = [wtDirty, wtLocked, wtKeepL, wtRecent, wtOutside, leftoverK];
+  // realpath ทั้งสองฝั่ง: git รายงาน path จริง แต่ fixture อาจอยู่ใต้ tmp ที่เป็น symlink/ชื่อ 8.3 (Windows runner)
+  // — เทียบดิบแล้ว "ไม่ registered" เป็นจริงเสมอ = เช็คถอนทะเบียนผ่านลมๆ + เช็คผู้รอดพังผิดๆ
+  // dir ที่ถูกลบแล้ว (เหยื่อ) realpath ไม่ได้ → canonicalize parent แทน ไม่งั้นเช็ค "ถอนทะเบียนแล้ว" ยังผ่านลมๆ
+  const canonK = (p) => {
+    try { return realpathSync.native(p); } catch { /* ไม่มีแล้ว */ }
+    try { return join(realpathSync.native(dirname(p)), basename(p)); } catch { return p; }
+  };
+  const keyK = (p) => canonK(p).replace(/\//g, '\\').replace(/\\+$/, '').toLowerCase();
   const registeredK = (p) => gitK(kRepo, ['worktree', 'list', '--porcelain']).split(/\r?\n/)
-    .some((l) => l.startsWith('worktree ') && l.slice(9).replace(/\//g, '\\').toLowerCase() === p.replace(/\//g, '\\').toLowerCase());
+    .some((l) => l.startsWith('worktree ') && keyK(l.slice(9)) === keyK(p));
   const pruneArgs = ['--repo', kRepo, '--keep', '1', '--keep-list', 'wt-keeplist'];
   // ส่ง kGitEnv เข้า child ด้วย — git ที่ prune ยิงเองต้อง hermetic เท่ากับ fixture
   const kRun = (args, cwd) => runNode(REAL_PRUNE, args, { home: kHome, extraEnv: kGitEnv, cwd });

@@ -5,7 +5,7 @@
 // worktree ที่ห้ามลบถาวร: git worktree lock <path> (วิธีมาตรฐาน — script ข้ามตัว locked เสมอ)
 // หรือส่งชื่อผ่าน --keep-list / env HANDOFF_GUARD_KEEP_LIST (คั่น comma)
 import { execFileSync } from 'node:child_process';
-import { statSync, existsSync, rmSync } from 'node:fs';
+import { statSync, existsSync, rmSync, realpathSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 
 const RECENT_DAYS = 2;
@@ -38,7 +38,11 @@ if (!repo || !existsSync(repo)) {
 }
 
 const git = (cwd, ...a) => execFileSync('git', ['-C', cwd, ...a], { encoding: 'utf8' });
-const norm = (p) => resolve(String(p)).replace(/[\\/]+$/, '').toLowerCase();
+// realpath ก่อนเทียบ: git worktree list คืน path จริงเสมอ แต่ --repo/cwd อาจมาทาง symlink หรือชื่อ 8.3
+// (Windows runner: TEMP=C:\\Users\\RUNNER~1\\… แต่ git รายงาน C:/Users/runneradmin/…) → prefix ไม่ match = prune เงียบไม่ทำอะไร
+// .native = ขยาย 8.3 บน Windows ด้วย · path ที่ไม่มีอยู่จริง (worktree missing) → fallback resolve
+const canon = (p) => { const r = resolve(String(p)); try { return realpathSync.native(r); } catch { return r; } };
+const norm = (p) => canon(p).replace(/[\\/]+$/, '').toLowerCase();
 
 const wtRoot = norm(join(repo, '.claude', 'worktrees'));
 const self = norm(process.cwd());

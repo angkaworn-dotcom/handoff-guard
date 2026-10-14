@@ -7,6 +7,8 @@ All notable changes to this project are documented in this file.
 ### Fixed
 - **`selftest.mjs` reported 68 false FAILs in a fresh repo checkout** — it always targeted the *installed* hook (`~/.claude/hooks/context-guard.mjs`), so on a machine (or CI runner) without handoff-guard installed every hook call failed. It now tests the repo's own `hooks/context-guard.mjs` when run from a checkout, falls back to the installed hook otherwise (the installed copy has no `hooks/`), prints which hook it is testing, and exits with a clear error if none is found. `HANDOFF_GUARD_HOOK` still overrides.
 
+- **`prune-worktrees.mjs` silently pruned nothing when the repo path was non-canonical** — it compared `--repo`/cwd against `git worktree list` output, which git always reports as the real path. Reached through a symlink or a Windows 8.3 short name (e.g. `C:\\Users\\RUNNER~1\\…` vs `C:/Users/runneradmin/…`), no worktree ever matched the `.claude/worktrees` prefix, so nothing was pruned and the self/keep-list guards never ran. Paths are now canonicalized with `realpathSync.native` before comparing. The selftest helper that checks git registration had the same blind spot (which also let "victim unregistered" checks pass vacuously) and is fixed too; caught by the new Windows CI leg, reproduced on Linux with a symlinked `TMPDIR`.
+
 ### Added
 - **CI: test workflow** — `.github/workflows/test.yml` runs both self-test suites on every PR and push to main (Ubuntu + Windows).
 
